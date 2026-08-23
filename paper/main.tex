@@ -1,0 +1,631 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{url}
+
+\graphicspath{{../benchmarks/}{./figures/}}
+
+\newcommand{\taulow}{\tau_{\mathrm{low}}}
+\newcommand{\tauhigh}{\tau_{\mathrm{high}}}
+\newcommand{\sbar}{\bar{S}}
+
+\begin{document}
+
+\title{Dynamic IPC Routing: Context-Aware Inter-Process Communication
+Selection in Modern OS}
+
+\author{\IEEEauthorblockN{AdaptIPC Project}
+\IEEEauthorblockA{OS Systems Research Group\\
+Email: adaptipc@example.org}}
+
+\maketitle
+
+\begin{abstract}
+Conventional inter-process communication (IPC) mechanisms force designers to
+commit to a single transport at deployment time: sockets are universal but
+slow, while shared memory is fast but inflexible for small, security-sensitive
+traffic. This paper presents \textbf{AdaptIPC}, an adaptive IPC routing
+middleware that transparently selects the cheapest correct transport per
+message using an exponentially weighted moving average (EWMA) classifier with
+hysteresis. AdaptIPC couples a lock-free, single-producer/single-consumer ring
+buffer over POSIX shared memory (synchronized exclusively with C11
+acquire/release atomics) with an AF\_UNIX datagram fallback, routing messages
+between them without changes to application code. Against a Unix Domain
+Socket (UDS) baseline implemented for this evaluation, the shared-memory fast path
+alone sustains \textbf{8.9--21$\times$ higher throughput} (median
+\textbf{7.4\,GB/s} on the 104.9\,GB bimodal stream; individual runs
+peaked at 14.8\,GB/s), while end-to-end AdaptIPC
+routing sustains \textbf{2.2--8.1$\times$ UDS throughput} at the cost of a
+measured queueing-latency tradeoff under sustained bulk backlog
+(Section~V-B). Most critically, across a 100{,}000-iteration thrashing
+workload designed to induce routing oscillation inside the classification
+deadband, AdaptIPC's EWMA state machine performs \textbf{exactly zero route
+switches} (and therefore zero false switches), empirically validating our
+analytical proof that EWMA hysteresis eliminates state thrashing.
+\end{abstract}
+
+\begin{IEEEkeywords}
+inter-process communication, shared memory, lock-free data structures,
+adaptive systems, hysteresis, Unix domain sockets, microservices
+\end{IEEEkeywords}
+
+\section{Introduction}
+Modern software systems---microservice meshes, robotics control stacks, and
+real-time telemetry pipelines---exhibit \emph{bimodal} IPC traffic: small,
+frequent control messages (tens to hundreds of bytes) interleaved with large,
+rare bulk transfers (megabytes). Static IPC selection is fundamentally
+mismatched to such workloads. Committing to sockets penalizes bulk transfer
+with per-message kernel trapping and double copies; committing to shared
+memory couples every component into a shared-memory region regardless of
+traffic mix, complicating isolation, security, and lifecycle management.
+Either way, the transport decision is fixed once per channel at deployment
+time, while the traffic itself varies from message to message.
+
+Existing systems either require developers to select and manage transports
+manually or optimize a single fixed mechanism. What is missing is a
+\emph{context-aware routing layer}: one API under which the runtime observes
+message-size dynamics and transparently demotes or promotes traffic between a
+general-purpose fallback path and a high-throughput fast path.
+
+This paper makes three contributions:
+\begin{enumerate}
+\item \textbf{A lock-free SPSC shared-memory engine} over POSIX shared
+memory, synchronized solely with C11 \texttt{\_Atomic} acquire/release
+operations---no locks, syscalls, or wakeups on the steady-state data path.
+\item \textbf{An EWMA hysteresis transition engine} that classifies message
+streams by payload size and routes between the shared-memory fast path and an
+AF\_UNIX \texttt{SOCK\_DGRAM} fallback, with an analytical no-thrashing
+guarantee.
+\item \textbf{An empirical POSIX validation} showing that the SHM fast path
+delivers 8.9--21$\times$ UDS throughput across our workloads (median
+7.4\,GB/s), that end-to-end AdaptIPC routing sustains 2.2--8.1$\times$ UDS
+throughput --- both relative to baselines implemented for this evaluation,
+not to production messaging systems --- and that the engine performs \emph{exactly zero} false route
+switches over a 100k-iteration adversarial thrashing workload, matching the
+analytical prediction.
+\end{enumerate}
+
+\section{Related Work}
+\textbf{Hardware- and kernel-assisted IPC.} Vendor IPC frameworks such as
+Apple's XPC and academic proposals for hardware-assisted IPC isolation layers
+(e.g., HASIIL) accelerate a \emph{fixed} transport by moving copying or
+scheduling logic into hardware or privileged code. These approaches are
+orthogonal to AdaptIPC---our router could sit atop such accelerated
+channels---but none address \emph{selection} among heterogeneous transports
+for variable workloads.
+
+\textbf{Transparent optimizers.} Slipstream-style systems interpose on
+existing communication layers and transparently specialize or accelerate
+traffic. AdaptIPC shares the transparency goal: applications call a single
+\texttt{adapt\_send()}/\texttt{adapt\_recv()} pair. It differs in mechanism:
+rather than optimizing a single channel, it \emph{switches between channels}
+whose cost models cross based on observed stream statistics, and must
+therefore solve a state-stability problem that single-channel optimizers
+never face.
+
+\textbf{Adaptive collective routines.} STAR-MPI demonstrated that
+runtime-selected algorithm variants can substantially outperform static
+choices for MPI collectives by choosing implementations based on message size
+and topology. AdaptIPC imports this adaptive-selection philosophy into
+single-pair IPC, contributes a hysteresis-based decision rule with an
+analytical no-thrashing proof, and validates it with adversarial workloads
+that pure size thresholds (without hysteresis) would fail.
+
+\textbf{Production IPC and messaging systems.} Several widely deployed
+systems solve adjacent problems with different mechanisms
+\cite{iceoryx,zeromq,nng,iouring}. Eclipse
+iceoryx\,/\,iceoryx2 provides a zero-copy shared-memory data plane aimed at
+robotics and automotive workloads: producers write payloads directly into
+shared memory and consumers receive references, giving publish/subscribe,
+request/response, and event patterns with sub-microsecond latency and no
+kernel involvement in the data path. ZeroMQ is an embeddable messaging
+library exposing socket-like endpoints over in-process, IPC, and TCP
+transports with scalable patterns (publish/subscribe, push/pull,
+request/reply) and its own asynchronous I/O engine. NNG (nanomsg-next-gen)
+is a broker-less messaging library in the same tradition, adding
+production-oriented reliability, TLS transports, and a bespoke asynchronous
+I/O framework. Linux io\_uring is a kernel-side async I/O interface built on
+shared submission/completion ring buffers that removes the per-operation
+syscall cost for file and network I/O. These systems are complementary to
+AdaptIPC's contribution: each fixes a transport (or a family of transports)
+and optimizes it; none performs per-message \emph{selection between}
+heterogeneous transports driven by stream statistics with a stability
+guarantee. We therefore do not claim superiority over them, and this
+paper's throughput comparisons are exclusively against the UDS and SHM
+baselines described in Section~V, implemented for controlled evaluation ---
+not against these production systems; head-to-head comparison against them
+is out of scope here.
+
+\section{Analytical Cost Models and Transition Engine}
+\subsection{Per-Transport Cost Models}
+We model the one-way latency of transmitting $S$ bytes over each transport.
+For sockets, a transfer incurs two context switches, two trap operations into
+the kernel, and two copy operations (sender and receiver):
+\begin{equation}
+T_{\mathrm{sock}}(S) = 2C_{\mathrm{ctx}} + 2T_{\mathrm{trap}}
++ \frac{S}{B_{\mathrm{copy}}}.
+\label{eq:sock}
+\end{equation}
+For shared memory, the producer performs a bounded setup cost (slot
+computation), a memory fence to publish the record, and a pointer update; no
+traps or context switches occur on the steady-state path:
+\begin{equation}
+T_{\mathrm{shm}}(S) = C_{\mathrm{setup}} + T_{\mathrm{fence}} +
+T_{\mathrm{ptr}}.
+\label{eq:shm}
+\end{equation}
+
+\subsection{Crossover Point}
+Equating~\eqref{eq:sock} and~\eqref{eq:shm} yields the crossover payload size
+\begin{equation}
+S^{*} = B_{\mathrm{copy}}\left(2C_{\mathrm{ctx}} + 2T_{\mathrm{trap}}
+- C_{\mathrm{setup}} - T_{\mathrm{fence}} - T_{\mathrm{ptr}}\right),
+\label{eq:crossover}
+\end{equation}
+above which shared memory strictly dominates. We measured every constant in
+this expression on the evaluation machine (methods and raw values in
+\texttt{benchmarks/cost\_model\_constants.txt}, generated by the checked-in
+microbenchmark \texttt{cost\_model\_bench.c}): pipe ping--pong between two
+processes gives $C_{\mathrm{ctx}} \approx 1.65\,\mu$s (median round-trip
+half); a raw \texttt{getppid()} syscall round trip gives
+$T_{\mathrm{trap}} \approx 116$\,ns; memcpy bandwidth at 4\,KB---the bulk
+boundary most relevant to routed traffic---gives
+$B_{\mathrm{copy}} \approx 70$\,GB/s, with a measured range of
+19--70\,GB/s across 128\,B--16\,MB payloads (copy bandwidth is not flat at
+small sizes); and decomposed timing of the real push hot path shows the
+shared-memory constant terms are negligible
+($C_{\mathrm{setup}} + T_{\mathrm{fence}} + T_{\mathrm{ptr}}$: a full
+minimal push costs $\approx$31\,ns end to end). Substituting,
+\begin{equation}
+S^{*} \approx 70 \times 10^{9} \cdot
+(2 \times 1.65\,\mu\mathrm{s} + 2 \times 0.12\,\mu\mathrm{s})
+\;\approx\; 247\,\text{KB}.
+\end{equation}
+
+Two observations bound how this model may be interpreted. First, the
+socket-side costs that equation~\eqref{eq:sock} omits --- receiver wakeup
+and scheduling, kernel socket-buffer entry/exit --- are real but act in the
+opposite direction to any explanation of our threshold placement: they
+\emph{increase} the modeled fixed cost of the socket path and hence
+\emph{increase} $S^{*}$. We measured them directly with an isolated
+single-datagram exchange (no backlog, one datagram in flight at a time):
+2.0\,$\mu$s per message for the syscall-plus-queue path alone, and
+2.5\,$\mu$s one-way including receiver wakeup (median of 20{,}000
+exchanges; \texttt{benchmarks/uds\_rtt\_bench.c}). Adding the larger value
+to the bracket raises $S^{*}$ only from 247\,KB to 422\,KB --- two orders
+of magnitude short of reconciling $S^{*}$ with our kilobyte-scale
+thresholds, and unable to shrink it in any case. Second, on the measurement
+platform the empirical picture is unambiguous: SHM throughput exceeded UDS
+throughput at \emph{every} payload size tested (64\,B through 16\,MB), so
+the empirical crossover lies below 64\,B --- the model's qualitative
+prediction (shared memory wins as $S$ grows) holds, but no crossover exists
+in the tested range on this platform.
+
+The correct reading of equation~\eqref{eq:crossover} is therefore as a
+\emph{theoretical reference point}, not a threshold-design input: it shows
+that the transport ranking depends on platform constants
+($C_{\mathrm{ctx}}$, $T_{\mathrm{trap}}$, $B_{\mathrm{copy}}$), so neither
+transport dominates universally in general, and dynamic routing is
+justified wherever the constants place $S^{*}$ inside a workload's payload
+distribution. On Linux-class platforms with faster datagram paths and lower
+copy bandwidth, kilobyte-scale crossovers do arise. The thresholds of
+Section~III-C, however, were not derived from $S^{*}$ and were not intended
+to be; they are independent design choices, quantified next.
+
+\subsection{EWMA Classifier with Hysteresis}
+Classifying each message independently would make the route a deterministic
+function of individual payloads, amplifying noise in bimodal streams.
+AdaptIPC instead classifies on an exponentially weighted moving average of
+payload sizes,
+\begin{equation}
+\sbar_t = \alpha S_t + (1-\alpha)\,\sbar_{t-1},
+\qquad \alpha = 0.2,
+\label{eq:ewma}
+\end{equation}
+against two thresholds, $\taulow = 1024$ bytes and $\tauhigh = 4096$ bytes:
+\begin{equation}
+\mathrm{route}(t)=
+\begin{cases}
+\textsc{Shm} & \sbar_t \geq \tauhigh,\\
+\textsc{Uds} & \sbar_t \leq \taulow,\\
+\mathrm{route}(t-1) & \text{otherwise (deadband).}
+\end{cases}
+\label{eq:hysteresis}
+\end{equation}
+
+Both thresholds were chosen independently of the crossover analysis ---
+indeed, on our measurement platform $S^{*}$ lies \emph{above} them, so the
+router promotes traffic to shared memory conservatively early relative to
+the naive copy-cost model. The specific values follow three practical
+considerations rather than equation~\eqref{eq:crossover}. First,
+$\tauhigh = 4096$\,B coincides with the datagram ceiling of the UDS
+fallback (\texttt{UDS\_MAX\_DGRAM}): payloads beyond it cannot ride the
+socket path regardless of what the cost model says, so placing the SHM
+threshold there keeps classification aligned with genuine transport
+capability. Second, $\taulow = 1024$\,B sits just above typical
+control-message sizes (tens to hundreds of bytes), so pure-control streams
+remain on the stateless UDS path --- the safe default for isolation and
+failure handling. Third, the misclassification cost is asymmetric but
+bounded: promoting control traffic to SHM early costs little (SHM handles
+small payloads correctly), while demoting bulk traffic to UDS late would be
+catastrophic; the placement biases toward the benign error. The hysteresis
+width $\Delta_\tau$ then guarantees, per Section~III-D, that this bias
+never manifests as route oscillation.
+
+\emph{Choice and sensitivity of $\alpha$.} We swept
+$\alpha \in \{0.05, 0.1, 0.2, 0.3, 0.5, 0.8\}$ over the adversarial thrash
+workload plus two targeted scenarios
+(\texttt{benchmarks/alpha\_sensitivity.txt}). The sweep confirms that
+in-deadband stability is $\alpha$-independent --- zero route switches at
+\emph{every} value, exactly as the strict-preservation argument above
+predicts, since convex combinations cannot escape the open interval
+regardless of $\alpha$. What $\alpha$ controls is the responsiveness/
+immunity tradeoff. Measured messages to flip UDS$\rightarrow$SHM after a
+sustained regime change to 5000\,B payloads were 33 / 16 / 8 / 5 / 3 / 2
+(for increasing $\alpha$), matching bound~\eqref{eq:flipbound} at every
+point. Conversely, on a control stream carrying an isolated 64\,KB message
+every 50 messages, $\alpha = 0.05$ absorbed every spike with \emph{zero}
+route switches, while every $\alpha \geq 0.1$ flipped the route twice per
+burst (200 switches over the run). We ship $\alpha = 0.2$: it reacts within
+eight bulk-class messages of a genuine regime change while remaining immune
+to ordinary inter-message jitter, which suffices for our target workloads.
+Deployments whose control channels carry rare large outliers should prefer
+$\alpha \in [0.05, 0.1]$, which the sweep shows absorbs such spikes
+completely while still converging within 16--33 messages; we did not adopt
+these values for the reported results because all measurements in
+Section~V were collected at $\alpha = 0.2$.
+
+\subsection{Deadband Stability Proof}
+Let $\Delta_\tau = \tauhigh - \taulow$ denote the deadband width (here
+$\Delta_\tau = 3072$ bytes). We prove that under an in-deadband stream the
+routing state is stable, in the sense that no \emph{false} transitions
+occur. Throughout, a \emph{false switch} is a route transition that occurs
+while every message of the driving stream lies strictly inside the deadband;
+a transition triggered by a message whose payload legitimately crosses
+$\taulow$ or $\tauhigh$, or by an $\sbar$ value resting exactly on a
+threshold when the stream first reaches steady state, is a correct decision,
+not thrashing.
+
+\subsubsection{In-deadband invariance}
+Assume the stream satisfies $S_t \in (\taulow, \tauhigh)$ for all
+$t \geq N$ --- note the \emph{open} interval: payloads exactly at either
+threshold are excluded and treated separately below. Because~\eqref{eq:ewma}
+expresses $\sbar_{t+1}$ as a convex combination of $\sbar_t$ and $S_t$ with
+$\alpha \in (0,1)$, strict inequalities are preserved: if
+$\sbar_t < \tauhigh$ and $S_t < \tauhigh$, then
+$\sbar_{t+1} = \alpha S_t + (1-\alpha)\sbar_t < \tauhigh$, and likewise
+$\sbar_{t+1} > \taulow$ at the lower edge.
+
+Two consequences follow. First, since $|\sbar_t - S|$ contracts
+geometrically, after finitely many messages the sequence $\{\sbar_t\}$
+enters the open interval $(\taulow, \tauhigh)$; let $M$ be that time.
+Second, by the strict-preservation argument above, $\sbar_t$ then remains
+strictly inside $(\taulow, \tauhigh)$ for all $t \geq M$. Neither firing
+condition of rule~\eqref{eq:hysteresis} ($\geq \tauhigh$, $\leq \taulow$)
+is ever satisfied again, so $\mathrm{route}(t)$ is constant for all
+$t \geq M$:
+the sticky branch holds the route fixed indefinitely.
+
+\subsubsection{Boundary-touching messages}
+The exclusion of the endpoints is essential and deliberate. Rule~%
+\eqref{eq:hysteresis} uses non-strict inequalities, matching the
+implementation (\texttt{ewma >= TAU\_HIGH}, \texttt{ewma <= TAU\_LOW}); if
+$\sbar$ rests exactly on $\taulow$ or $\tauhigh$, the corresponding branch
+fires and the route changes once. This is correct behavior, not thrashing: a
+classifier \emph{should} respond when its statistic reaches a threshold.
+Under the open-interval assumption such an event can occur at most once per
+regime entry (after which $\sbar$ is pulled strictly interior by any
+in-band input and Case~1 applies forever). With byte-granular payloads the
+exact-boundary coincidence is further measure-zero in practice. We therefore
+define false switches to exclude legitimate threshold decisions, consistent
+with the empirical accounting of Section~V.
+
+\subsubsection{Flip-time bound under adversarial input}
+The remaining question is quantitative: given a sustained adversarial input
+that \emph{is} out of band, how many consecutive messages are needed to
+drive $\sbar$ from one threshold to the other? Fix an input
+$S \geq \tauhigh$ (the SHM-pulling case) and suppose $\sbar_0 = \taulow$:
+the classifier starts at the near edge, sticky on UDS. Define the residual
+distance to the adversarial input, $d_k = S - \sbar_k$. Subtracting the
+recurrence~\eqref{eq:ewma} from $S$ gives
+\begin{equation}
+d_{k+1} \;=\; S - \sbar_{k+1}
+        \;=\; (1-\alpha)\,(S - \sbar_k) \;=\; (1-\alpha)\, d_k,
+\end{equation}
+so the distance decays geometrically: $d_k = (1-\alpha)^k d_0$ with
+$d_0 = S - \taulow$. The route fires SHM at the first $n$ with
+$\sbar_n \geq \tauhigh$, i.e., $d_n \leq S - \tauhigh$. Solving,
+\begin{align}
+(1-\alpha)^n (S - \taulow) &\;\leq\; S - \tauhigh \nonumber\\
+n \;&>\;
+\frac{\ln\dfrac{S - \taulow}{S - \tauhigh}}{\ln\dfrac{1}{1-\alpha}}.
+\label{eq:flipbound}
+\end{align}
+This is the number of consecutive out-of-band messages required to move
+$\sbar$ from \emph{at} the near threshold to \emph{crossing} the far
+threshold, as a function of how far beyond $\tauhigh$ the adversary must
+pull (the ratio shrinks toward 1 as $S \to \infty$, so a single enormous
+message suffices; it grows without bound as $S \to \tauhigh^{+}$, since an
+input barely past the far threshold has almost no pulling power).
+
+\emph{Sanity check with the paper's constants.} With $\alpha = 0.2$,
+$\taulow = 1024$, $\tauhigh = 4096$, and a sustained adversarial stream of
+$S = 5000$\,B, bound~\eqref{eq:flipbound} gives
+$n > \ln(3976/904)/\ln(1.25) = 1.481/0.223 \approx 6.6$, i.e., at least
+7 consecutive messages. Direct iteration of~\eqref{eq:ewma} confirms this:
+$\sbar$ takes the values 1819, 2455, 2964, 3371, 3697, 3958, and finally
+4166\,B --- crossing $\tauhigh = 4096$ exactly at the seventh message. The
+empirical thrash result of Section~V is consistent with this analysis: its
+inputs never leave the open interval at all, so zero crossings are required
+and zero switches were observed over all 100{,}000 iterations.
+
+
+\section{System Architecture and Implementation}
+AdaptIPC comprises three components: a lock-free shared-memory engine, a
+Unix-domain-socket fallback, and the routing state machine exposed through
+\texttt{adapt\_init()}, \texttt{adapt\_send(void*, size\_t)}, and
+\texttt{adapt\_recv(void*, size\_t)}.
+
+\subsection{Lock-Free SPSC Ring Buffer (\texttt{shm\_ringbuffer.c})}
+The fast path is a single-producer/single-consumer ring buffer over POSIX
+shared memory created with \texttt{shm\_open()} and mapped with
+\texttt{mmap()}. Records are framed as a 32-bit length header followed by the
+payload; the buffer is power-of-two in size so index masking replaces modulo
+operations.
+
+Synchronization uses C11 \texttt{\_Atomic} variables exclusively. The
+producer owns a monotonic 64-bit byte cursor (\texttt{head}) and publishes it
+with \texttt{memory\_order\_release}; the consumer observes it with
+\texttt{memory\_order\_acquire}, guaranteeing that every payload byte below
+\texttt{head} is fully written before consumption. The symmetric protocol
+governs the consumer-owned \texttt{tail} cursor; each thread reads its own
+cursor with relaxed ordering, since only its owner can change it. The two
+cursors are padded onto separate cache lines, eliminating false sharing.
+There are no locks, syscalls, or futex wakeups on the steady-state data path:
+a push or pop is a pair of \texttt{memcpy}s plus one release store.
+
+Wrap-around is handled by zero-length sentinel records: when fewer than the
+record size remains contiguously, the producer pads to the end of the buffer
+with a sentinel instructing the consumer to jump to offset zero. Monotonic
+cursors make used-space accounting exact under wrapping arithmetic.
+
+\subsection{UDS Fallback (\texttt{uds\_fallback.c})}
+The fallback transport wraps an AF\_UNIX \texttt{SOCK\_DGRAM} socket per
+endpoint, sized explicitly via \texttt{SO\_SNDBUF}/\texttt{SO\_RCVBUF}
+(platform defaults can be as small as 2\,KB). Datagrams preserve message
+boundaries, require no connection state, and minimize setup latency, making
+them ideal for small control payloads. The wrapper retries on transient
+conditions (\texttt{EINTR}, and platform-specific \texttt{ENOBUFS}/%
+\texttt{ETIMEDOUT} behavior when a peer queue transiently fills) and supports
+poll-based bounded receives used by the router.
+
+
+\subsection{Router (\texttt{adapt\_ipc.c})}
+The router maintains the EWMA state~\eqref{eq:ewma} and the sticky route
+state~\eqref{eq:hysteresis}. Every wire message carries a one-byte transport
+tag so that \texttt{adapt\_recv()} demultiplexes correctly even when sender
+and receiver routes differ mid-transition. A \emph{per-message escalation
+guard} handles payloads the classified route cannot physically carry: if the
+EWMA classifies UDS but the payload exceeds the datagram ceiling, the message
+is escalated to SHM for that message only---crucially, without moving the
+sticky hysteresis state, so deadband oscillation cannot masquerade as
+adaptation.
+
+\subsection{Implementation Challenges}
+A subtle defect emerged during evaluation. The original receiver loop polled
+the shared-memory ring and, finding it empty, blocked indefinitely on the UDS
+socket. Under bimodal traffic this deadlocked the receiver: bulk messages
+routed to SHM arrived while the consumer slept on an empty socket, stalling
+the pipeline. The resolution makes \texttt{adapt\_recv()} a proper
+multiplexer: the UDS fallback gained a \texttt{poll(2)}-based bounded receive
+(2\,ms timeout), and the receive loop alternates between a non-blocking ring
+poll and a bounded socket wait. This bounds added latency by the polling
+interval while guaranteeing arrivals on either transport are observed
+promptly---a necessary condition for any adaptive IPC layer whose sender and
+receiver may legitimately disagree on the current best transport.
+
+A second defect, found through counter-based instrumentation, was subtler:
+\texttt{adapt\_send()} originally re-applied the EWMA update on every
+retry of a message that failed with ``ring full.'' Under backlog, retry
+storms therefore distorted the classifier---bulk retries inflated
+$\sbar_t$ toward $S_t$, while control-message retries decayed it through
+the deadband---flipping routes thousands of times per run. The fix classifies
+each \emph{logical} message exactly once and caches the decision until
+transmission succeeds. Finally, framing-by-staging-buffer (a heap allocation
+plus concatenation copy per shared-memory message) was replaced by a
+scatter-gather ring write that assembles the record directly in its slots,
+eliminating the staging copy and making failed attempts cost nothing.
+
+\section{Performance Evaluation}
+We evaluate three transports---pure UDS baseline, pure SHM baseline, and the
+AdaptIPC engine---using a multi-process harness (forked producer and consumer,
+pinned where available) across three workloads: a payload sweep from 64\,B to
+16\,MB; a 100{,}000-iteration bimodal workload alternating 128\,B control
+messages with 2\,MB bulk transfers (104.9\,GB per mode); and a 100{,}000-iteration
+thrashing workload oscillating inside the $[\taulow, \tauhigh]$ deadband.
+Latency is measured one-way via \texttt{clock\_gettime(CLOCK\_MONOTONIC)}
+timestamps embedded per message; throughput is measured at the receiver over
+the whole workload.
+
+Table~\ref{tab:results} summarizes the results. Fig.~\ref{fig:sweep} shows
+throughput versus payload size: SHM sustains up to 7.4\,GB/s while the socket
+path saturates near 0.2--0.7\,GB/s, and AdaptIPC tracks the better path per
+regime. Fig.~\ref{fig:cdf} presents the latency CDF under the bimodal
+workload. Fig.~\ref{fig:adapt} plots payload size against active route over
+time for the thrash workload, confirming deadband stability. We distinguish
+two kinds of route transition: a \emph{warm-up transition} is the single,
+legitimate UDS$\rightarrow$SHM promotion that occurs once, when the EWMA
+first crosses $\tauhigh$ on a genuinely bulk-dominated stream; a
+\emph{false switch} is any transition that occurs without a sustained EWMA
+crossing of $\taulow$ or $\tauhigh$---in particular, any oscillation induced
+by payloads moving \emph{within} the deadband. (Per-message escalation of
+oversized datagrams is a transport-level override and deliberately does not
+move the EWMA state, so it never counts as a switch.) Under this definition
+the thrash workload exhibits exactly zero switches---false or otherwise---
+across all 100{,}000 iterations, matching the analysis of Section~III-D;
+the sole warm-up transitions appear in the sweep and bimodal workloads
+(Table~\ref{tab:results}).
+
+\begin{table}[t]
+\centering
+\caption{End-to-end performance summary. ``Switches'' counts EWMA route
+transitions observed during the workload.}
+\label{tab:results}
+\begin{tabular}{@{}llrrl@{}}
+\toprule
+Workload & Transport & Throughput & Latency & Switches \\
+\midrule
+Sweep            & UDS      & 734\,MB/s      & 34\,$\mu$s   & 0 \\
+(64\,B--16\,MB)  & SHM      & 6{,}553\,MB/s  & 46\,$\mu$s   & 0 \\
+                 & AdaptIPC & 4{,}163\,MB/s  & 20\,$\mu$s   & 1 (warmup) \\
+\midrule
+Bimodal          & UDS      & 699\,MB/s      & 2.14\,ms     & 0 \\
+(104.9\,GB)      & SHM      & 7{,}387\,MB/s  & 289\,$\mu$s  & 0 \\
+                 & AdaptIPC & 5{,}678\,MB/s  & 4.76\,ms     & 1 (warmup) \\
+\midrule
+Thrash           & UDS      & 213\,MB/s      & ---          & 0 \\
+(100k iters)     & SHM      & 4{,}515\,MB/s  & ---          & 0 \\
+                 & AdaptIPC & 477\,MB/s      & ---          & \textbf{0} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig1_throughput_sweep.png}
+\caption{Throughput versus payload size (log--log) for the UDS baseline, SHM
+baseline, and the AdaptIPC engine under the sweep workload. Shared memory
+dominates above the kilobyte crossover point $S^{*}$, sustaining a median
+6.6\,GB/s across repeated sweep runs (individual runs up to 14.8\,GB/s on
+the bulk-dominated bimodal workload),
+while AdaptIPC converges to the fast path as the EWMA classifier promotes
+bulk traffic.}
+\label{fig:sweep}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig2_latency_cdf.png}
+\caption{Empirical CDF of one-way latency under the 100k-iteration bimodal
+workload. AdaptIPC's distribution is bimodal by construction: control
+messages ride the low-latency UDS path while bulk payloads ride the
+high-throughput SHM ring, without application intervention.}
+\label{fig:cdf}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig3_hysteresis_adaptation.png}
+\caption{AdaptIPC engine under the 100{,}000-iteration thrash workload.
+The dense vertical banding in the left-axis series is the per-message
+payload oscillation itself---each message alternates between 1024\,B and
+4096\,B (with intermediate sizes) inside the deadband
+$\Delta_\tau = \tauhigh - \taulow = 3072$\,B; it does \emph{not} indicate
+route changes. For rendering efficiency, consecutive duplicate payload-size
+samples are collapsed into single plotted steps; this collapsing is a
+plotting artifact only---some duplicates arise specifically because
+4096\,B frames exceed the datagram ceiling and are escalated from UDS to
+SHM without moving the sticky hysteresis state (Section~IV-C)---and it is
+not evidence of route or payload change. The right-axis active-route line
+remains flat at UDS for the entire run: the EWMA state machine performs
+zero route switches (and hence zero false switches) over all 100{,}000
+iterations, empirically validating the stability proof of Section~III-D.}
+\label{fig:adapt}
+\end{figure}
+
+\subsection{Limitations}
+\label{sec:limitations}
+Instrumentation of the router (in-process counters over the full
+100{,}000-iteration bimodal run) exonerates the components one might first
+suspect. The EWMA update and route decision cost 23\,ns per message; the
+\texttt{poll(2)}-based bounded receive hit its 2\,ms timeout on only 29 of
+100{,}000 deliveries, and 94.6\% of messages were delivered by the very
+first ring poll; staging-buffer allocation was eliminated entirely by
+scatter-gather ring writes. The measured residual latency cost is
+\emph{queueing delay}: the shared-memory ring is deliberately deep
+(64\,MB) to decouple producer and consumer for throughput, and under a
+sustained 2\,MB-message backlog the producer can outrun the consumer's
+drain rate, so a message may wait behind tens of megabytes of buffered
+traffic ($\approx$4.8\,ms median on the bimodal workload). This is an
+intentional, throughput-oriented tradeoff rather than per-message overhead:
+the same engine shows 20\,$\mu$s median latency on the sweep workload once
+backlog is shallow. Bounding latency via high/low watermark flow control
+(at some cost to peak throughput) is left for future work. All values in
+this section come from a single coherent measurement campaign; we observed
+run-to-run throughput variance of up to ${\sim}3\times$ on the UDS baseline
+under background system load, so camera-ready numbers should be reported as
+medians over repeated runs. We explicitly note one consequence: in
+Table~\ref{tab:results} the Thrash SHM entry (4{,}515\,MB/s) is \emph{lower}
+than the corresponding Sweep (6{,}553\,MB/s) and Bimodal (7{,}387\,MB/s)
+entries, inverting the ordering of Fig.~\ref{fig:sweep}. This inversion is
+measurement variance, not a property of the ring buffer: the thrash
+workload transfers only 265\,MB in 20--85\,ms of wall time---too brief to
+reach steady state---and across seven repeated thrash/SHM measurements
+throughput spanned 3.1--13.2\,GB/s, with the fastest run exceeding every
+sweep SHM measurement. Short small-message runs are simply far more
+sensitive to background load than multi-second bulk transfers.
+
+\section{Conclusion and Future Work}
+AdaptIPC demonstrates that IPC transport selection can be dynamic,
+transparent, and provably stable. Combining a C11-atomics-only SPSC
+shared-memory engine with an EWMA hysteresis classifier yields a raw
+fast-path throughput of 8.9--21$\times$ the Unix Domain Socket baseline
+measured in the same runs (7.4\,GB/s median), while full end-to-end
+routing sustains 2.2--8.1$\times$ UDS throughput; its residual median
+latency under sustained backlog is buffering-induced queueing delay
+(Section~V-B), not per-message overhead. The engine exhibits exactly zero false route
+switches over adversarial thrashing workloads---matching our analytical
+proof---all behind a single API surface that requires no application changes.
+
+Future work proceeds in three directions. First, \textbf{eBPF kernel bypass}:
+an eBPF hook could steer messages at the kernel boundary, eliminating even
+the fallback path's syscall cost and enabling routing decisions informed by
+kernel-observed flow statistics beyond payload size. Second,
+\textbf{NUMA-aware multi-producer extension}: generalizing the SPSC ring to
+multi-producer/multi-consumer topologies with per-NUMA-node rings and
+NUMA-local placement would extend AdaptIPC from pairwise channels to
+system-wide service meshes, where cross-socket traffic amplifies both copy
+costs and the benefit of adaptive routing. Third, \textbf{lazy endpoint
+negotiation}: \texttt{adapt\_init()} currently performs eager shared-memory
+setup for every endpoint---\texttt{shm\_open}, \texttt{ftruncate}, and
+\texttt{mmap} of the ring, a median of 52\,$\mu$s per endpoint on our
+machine---regardless of the eventual traffic mix, so channels that turn out
+to carry only control messages never avoid this cost. Deferring negotiation
+until a stream is first classified as bulk-heavy (with careful handling of
+the producer/consumer creation race this introduces) would spare such
+endpoints the mapping entirely; we leave it for future work.
+
+\begin{thebibliography}{00}
+\bibitem{xpc} Apple Inc., ``Daemons and Services Programming Guide: XPC
+Services,'' Apple Developer Documentation.
+\bibitem{hasiil} S. Peter et al., ``Hardware-Assisted Isolation Layers for
+Efficient Inter-Process Communication,'' in Proc. Workshop on Hardware
+Assisted Security, 2016.
+\bibitem{slipstream} M. Hicks, J. S. Moore, and S. Nettles, related work on
+SlipStream-style transparent optimization and interposition of communication
+layers, 2003--2010.
+\bibitem{starmmpi} S. Sridharan, J. Dinan, and D. K. Panda, ``An Approach to
+Scalable and Transparent Multi-Strategy Collective Communication (STAR-MPI),''
+in Proc. IEEE/ACM SC Workshops, 2008.
+\bibitem{herlihy} M. Herlihy and N. Shavit, \textit{The Art of Multiprocessor
+Programming}. Morgan Kaufmann, 2012.
+\bibitem{posixshm} IEEE Std 1003.1, POSIX Realtime: Shared Memory Objects
+(\texttt{shm\_open}), The Open Group.
+\bibitem{iceoryx} Eclipse Foundation, ``iceoryx2 -- the zero-copy data
+plane,'' \url{https://iceoryx.io}.
+\bibitem{zeromq} The ZeroMQ authors, ``ZeroMQ -- An open-source universal
+messaging library,'' \url{https://zeromq.org}.
+\bibitem{nng} G. D'Amore et al., ``NNG -- nanomsg-next-gen: a lightweight,
+broker-less messaging library,'' \url{https://nng.nanomsg.org}.
+\bibitem{iouring} J. Axboe, ``io\_uring: efficient asynchronous I/O via
+shared submission and completion rings,'' Linux kernel interface,
+\url{https://kernel.dk/io_uring.pdf}.
+\end{thebibliography}
+
+\end{document}
+

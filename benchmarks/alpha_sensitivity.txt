@@ -1,0 +1,19 @@
+# EWMA alpha sensitivity sweep (post retry-fix code)
+alpha=0.05 scenario=A(stability,20k in-band msgs): switches=0
+alpha=0.05 scenario=B(responsiveness,control->5000B): settled_uds=1 msgs_to_SHM_flip=33 predicted_n>32.8 (observed matches prediction)
+alpha=0.05 scenario=C(spike immunity,100 spikes/5k msgs): switches=0 (bursts=100)
+alpha=0.1  scenario=A(stability,20k in-band msgs): switches=0
+alpha=0.1  scenario=B(responsiveness,control->5000B): settled_uds=1 msgs_to_SHM_flip=16 predicted_n>16.0 (observed matches prediction)
+alpha=0.1  scenario=C(spike immunity,100 spikes/5k msgs): switches=200 (bursts=100)
+alpha=0.2  scenario=A(stability,20k in-band msgs): switches=0
+alpha=0.2  scenario=B(responsiveness,control->5000B): settled_uds=1 msgs_to_SHM_flip=8 predicted_n>7.5 (observed matches prediction)
+alpha=0.2  scenario=C(spike immunity,100 spikes/5k msgs): switches=200 (bursts=100)
+alpha=0.3  scenario=A(stability,20k in-band msgs): switches=0
+alpha=0.3  scenario=B(responsiveness,control->5000B): settled_uds=1 msgs_to_SHM_flip=5 predicted_n>4.7 (observed matches prediction)
+alpha=0.3  scenario=C(spike immunity,100 spikes/5k msgs): switches=200 (bursts=100)
+alpha=0.5  scenario=A(stability,20k in-band msgs): switches=0
+alpha=0.5  scenario=B(responsiveness,control->5000B): settled_uds=1 msgs_to_SHM_flip=3 predicted_n>2.4 (observed matches prediction)
+alpha=0.5  scenario=C(spike immunity,100 spikes/5k msgs): switches=200 (bursts=100)
+alpha=0.8  scenario=A(stability,20k in-band msgs): switches=0
+alpha=0.8  scenario=B(responsiveness,control->5000B): settled_uds=1 msgs_to_SHM_flip=2 predicted_n>1.0 (observed matches prediction)
+alpha=0.8  scenario=C(spike immunity,100 spikes/5k msgs): switches=200 (bursts=100)

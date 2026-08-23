@@ -1,0 +1,5 @@
+# adapt_init() endpoint-creation latency
+# method: median of 500 producer-role init cycles (shm_open+ftruncate(64MB)+mmap+header init + socket()+bind), warm names, CLOCK_MONOTONIC
+init_median_ns=52000
+init_p10_ns=46000
+init_p90_ns=72000

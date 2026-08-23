@@ -1,0 +1,31 @@
+# --- OS cruft ---
+.DS_Store
+Thumbs.db
+
+# --- C build artifacts ---
+*.o
+*.a
+*.so
+build/
+build-bench/
+*.dSYM/
+
+# --- LaTeX build artifacts (main.pdf IS tracked intentionally) ---
+*.aux
+*.log
+*.out
+*.bbl
+*.blg
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.xdv
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+# --- archives / macOS compress artifacts ---
+*.zip
+__MACOSX/

@@ -1,0 +1,23 @@
+# latency breakdown: mode=adapt workload=thrash
+# generated from ADAPTIPC_STATS=1 in-process counters
+workload=thrash
+messages_received=100000
+
+[receive-side multiplexer]
+delivered_shm_first_poll=0
+delivered_shm_after_timeout=0
+delivered_uds_prompt=0
+delivered_uds_after_timeout=0
+poll_calls=0
+poll_timeouts_2ms=0
+poll_wait_total_ns=0
+poll_wait_mean_ns=0
+recv_loop_iters=0
+
+[send-side]
+sends_total=0 sends_shm=0 sends_uds=0
+send_escalations_udsbeyond_dgram=0
+router_ewma_classify_total_ns=0
+router_ewma_classify_mean_ns=0
+send_alloc_total_ns=0 send_alloc_mean_ns=0
+send_copy_total_ns=0 send_copy_bytes=0

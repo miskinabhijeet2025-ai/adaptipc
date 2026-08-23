@@ -1,0 +1,29 @@
+# AdaptIPC cost-model constants (measured on this machine, CLOCK_MONOTONIC)
+C_ctx method: pipe ping-pong, median RTT/2 over 5000 samples of 10 round trips
+C_ctx = 1650.0 ns
+T_trap method: getppid() syscall, mean over 500000 calls
+T_trap = 116.2 ns
+B_copy method: memcpy of `size` bytes, ~256 MB moved per point; bytes/ns == GB/s
+B_copy[    128 B] =    34.73 GB/s (2097152 reps)
+B_copy[    256 B] =    35.94 GB/s (1048576 reps)
+B_copy[    512 B] =    52.01 GB/s (524288 reps)
+B_copy[   1024 B] =    62.88 GB/s (262144 reps)
+B_copy[   2048 B] =    69.13 GB/s (131072 reps)
+B_copy[   4096 B] =    64.89 GB/s (65536 reps)
+B_copy[   8192 B] =    63.84 GB/s (32768 reps)
+B_copy[  16384 B] =    82.85 GB/s (16384 reps)
+B_copy[  65536 B] =    69.29 GB/s (4096 reps)
+B_copy[1048576 B] =    44.49 GB/s (256 reps)
+B_copy[2097152 B] =    38.61 GB/s (128 reps)
+B_copy[16777216 B] =    19.13 GB/s (16 reps)
+
+[SHM path components] method: decomposed timing of the shm_ring_push_scatter hot path (64MB ring, single producer, no consumer contention)
+T_fence (release store):          0.00 ns/op
+C_setup+T_ptr (cursor/slot):      0.20 ns/op
+full minimal push (tag+8 B):     17.10 ns/push
+=> C_setup+T_fence+T_ptr ~= push cost for minimal payload (17.10 ns); per-message copy term measured separately via B_copy
+
+[S* computation]
+B_copy(4KB) = 69.88 GB/s (69.880 bytes/ns)
+S* = B_copy * (2*C_ctx + 2*T_trap) (SHM constant terms are sub-ns and subtracted)
+S* = 69.880 * (2*1650.0 + 2*116.2) ns = 246841 bytes
