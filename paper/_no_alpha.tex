@@ -239,106 +239,7 @@ against two thresholds, $\taulow = 1024$ bytes and $\tauhigh = 4096$ bytes:
 \label{eq:hysteresis}
 \end{equation}
 
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}[font=\scriptsize,>=Latex,node distance=4mm,
-  box/.style={draw,rounded corners=1pt,align=center,minimum height=5mm,
-              inner sep=2pt},
-  dec/.style={draw,diamond,aspect=2.2,align=center,inner sep=1pt}]
-\node[box] (msg) {message with size $S_t$};
-\node[box,below=3.5mm of msg] (upd) {update EWMA (eq.~\eqref{eq:ewma})};
-\node[dec,below=4mm of upd] (d1) {$\sbar_t \geq \tauhigh$?};
-\node[dec,below=4mm of d1] (d2) {$\sbar_t \leq \taulow$?};
-\node[box,right=6mm of d1] (shm) {\textsc{Shm}};
-\node[box,right=6mm of d2] (uds) {\textsc{Uds}};
-\node[box,below=4mm of d2] (sticky) {keep $\mathrm{route}(t{-}1)$\\(deadband)};
-\node[box,below=4mm of sticky] (eg) {\textbf{escalation guard}: route is
-  \textsc{Uds} but $|{\rm msg}|+1 >$ \texttt{UDS\_MAX\_DGRAM}\\
-  $\Rightarrow$ send via SHM \emph{this message only}
-  ($\sbar$ / last\_route unchanged)};
-\node[box,below=4mm of eg] (tx) {transmit [\texttt{tag}$\mid$payload]};
-\draw[->] (msg) -- (upd);
-\draw[->] (upd) -- (d1);
-\draw[->] (d1) -- node[left]{yes} (shm);
-\draw[->] (d1.east) -| node[above,pos=0.25]{no} (d2.north);
-\draw[->] (d2) -- node[left]{yes} (uds);
-\draw[->] (d2.south) -- node[right]{no} (sticky.north);
-\draw[->] (d2.west) -| node[above,pos=0.25]{no: keep} ([xshift=-2mm]sticky.west)
-          |- (eg.west);
-\draw[->] (shm.south) |- ([yshift=1mm]tx.west);
-\draw[->] (uds.south) |- ([yshift=0.5mm]tx.west);
-\draw[->] (sticky) -- (eg);
-\draw[->] (eg) -- (tx);
-\end{tikzpicture}
-\caption{Per-message routing decision. The EWMA statistic $\sbar$
-(eq.~\eqref{eq:ewma}) is compared against $\tauhigh$ and $\taulow$ per
-rule~\eqref{eq:hysteresis}; in-deadband messages keep the previous route.
-The escalation guard overrides only the transmission transport for
-individual oversized messages and leaves the EWMA/hysteresis state
-untouched. Every transmitted frame carries a one-byte transport tag so the
-receiver can demultiplex.}
-\label{fig:decision}
-\end{figure}
 
-Figure~\ref{fig:decision} summarizes the complete per-message decision,
-including the escalation override described at the end of this section.
-Both thresholds were chosen independently of the crossover analysis ---
-indeed, on our measurement platform $S^{*}$ lies \emph{above} them, so the
-router promotes traffic to shared memory conservatively early relative to
-the naive copy-cost model. The specific values follow three practical
-considerations rather than equation~\eqref{eq:crossover}. First,
-$\tauhigh = 4096$\,B coincides with the datagram ceiling of the UDS
-fallback (\texttt{UDS\_MAX\_DGRAM}): payloads beyond it cannot ride the
-socket path regardless of what the cost model says, so placing the SHM
-threshold there keeps classification aligned with genuine transport
-capability. Second, $\taulow = 1024$\,B sits just above typical
-control-message sizes (tens to hundreds of bytes), so pure-control streams
-remain on the stateless UDS path --- the safe default for isolation and
-failure handling. Third, the misclassification cost is asymmetric but
-bounded: promoting control traffic to SHM early costs little (SHM handles
-small payloads correctly), while demoting bulk traffic to UDS late would be
-catastrophic; the placement biases toward the benign error. The hysteresis
-width $\Delta_\tau$ then guarantees, per Section~III-D, that this bias
-never manifests as route oscillation.
-
-\emph{Choice and sensitivity of $\alpha$.} We swept
-$\alpha \in \{0.05, 0.1, 0.2, 0.3, 0.5, 0.8\}$ over the adversarial thrash
-workload plus two targeted scenarios
-(\texttt{benchmarks/alpha\_sensitivity.txt}). The sweep confirms that
-in-deadband stability is $\alpha$-independent --- zero route switches at
-\emph{every} value, exactly as the strict-preservation argument above
-predicts, since convex combinations cannot escape the open interval
-regardless of $\alpha$. What $\alpha$ controls is the responsiveness/
-immunity tradeoff. Measured messages to flip UDS$\rightarrow$SHM after a
-sustained regime change to 5000\,B payloads were 33 / 16 / 8 / 5 / 3 / 2
-(for increasing $\alpha$), matching bound~\eqref{eq:flipbound} at every
-point. Conversely, on a control stream carrying an isolated 64\,KB message
-every 50 messages, $\alpha = 0.05$ absorbed every spike with \emph{zero}
-route switches, while every $\alpha \geq 0.1$ flipped the route twice per
-burst (200 switches over the run). We ship $\alpha = 0.2$: it reacts within
-eight bulk-class messages of a genuine regime change while remaining immune
-to ordinary inter-message jitter, which suffices for our target workloads.
-Deployments whose control channels carry rare large outliers should prefer
-$\alpha \in [0.05, 0.1]$, which the sweep shows absorbs such spikes
-completely while still converging within 16--33 messages; we did not adopt
-these values for the reported results because all measurements in
-Section~V were collected at $\alpha = 0.2$.
-Figure~\ref{fig:alpha} visualizes both sides of this tradeoff.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig4_alpha_tradeoff.pdf}
-\caption{EWMA smoothing-factor sensitivity, measured over the full
-$\alpha \in \{0.05,\dots,0.8\}$ grid on live AdaptIPC endpoints.
-(a)~Messages needed to flip UDS$\to$SHM after a sustained regime change to
-5000\,B payloads (log scale): measured values (points) track the
-Section~III-D flip-time bound (line) at every $\alpha$. (b)~Route switches
-caused by 100 isolated 64\,KB spikes embedded in a control stream: the
-knee at $\alpha \approx 0.1$ separates spike-immune configurations
-($\alpha = 0.05$: zero switches) from configurations where every burst
-flips the route.}
-\label{fig:alpha}
-\end{figure}
 
 \subsection{Deadband Stability Proof}
 Let $\Delta_\tau = \tauhigh - \taulow$ denote the deadband width (here
@@ -434,42 +335,46 @@ resulting per-message data flow through one endpoint.
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[font=\scriptsize,>=Latex,
-  box/.style={draw,rounded corners=1pt,align=center,inner sep=3pt},
-  lbl/.style={font=\tiny,align=center}]
+\begin{tikzpicture}[font=\scriptsize,>=Latex,node distance=4mm,
+  box/.style={draw,rounded corners=1pt,align=center,minimum height=6mm,
+              inner sep=2.5pt}]
 \node[box] (app) {Application};
 \node[box,below=4mm of app] (api)
   {\texttt{adapt\_send()} / \texttt{adapt\_recv()}};
 \node[box,below=4mm of api] (rt)
-  {\textbf{Router}\\ EWMA state $\bar S_t$ + sticky route};
-\node[box,below left=6mm and 1mm of rt.south] (shm)
-  {\textbf{SHM ring buffer}\\ \texttt{shm\_open}/\texttt{mmap}\\
+  {\textbf{Router}\\ EWMA state $\sbar$ + sticky route\\ (Fig.~\ref{fig:decision})};
+\node[box,below left=6.5mm and -13mm of rt.south] (shm)
+  {\textbf{SHM ring buffer}\\ \texttt{shm\_open} / \texttt{mmap}\\
    head/tail cursors};
-\node[box,below right=6mm and 1mm of rt.south] (uds)
-  {\textbf{UDS fallback}\\ AF\_UNIX \texttt{SOCK\_DGRAM}};
-\node[box,below=7mm of rt.south] (mux)
-  {\texttt{adapt\_recv()}: ring poll / bounded \texttt{poll(2)} on UDS};
+\node[box,below right=6.5mm and -13mm of rt.south] (uds)
+  {\textbf{UDS fallback}\\ AF\_UNIX \texttt{SOCK\_DGRAM}\\ bounded
+   \texttt{poll(2)} receive};
+\node[box,below=17mm of rt] (mux)
+  {\texttt{adapt\_recv()} multiplexer:\\ ring poll $\vee$ bounded UDS wait
+   \\ (transport-tag demultiplex)};
 \node[box,below=4mm of mux] (peer) {Peer application};
 \draw[->] (app) -- (api);
 \draw[->] (api) -- (rt);
 \draw[->] (rt) -- (shm)
-  node[lbl,midway,left,align=right]{frame\\ (tag + payload)};
+  node[midway,left,align=center]{[tag$\mid$payload]};
 \draw[->] (rt) -- (uds)
-  node[lbl,midway,right,align=left]{frame\\ (tag + payload)};
-\draw[->,dashed] (uds.west) to[out=180,in=0]
-  node[lbl,midway,above]{escalation guard: oversized UDS-classified
-  message $\to$ SHM (state unchanged)} (shm.east);
-\draw[->] (shm.south) |- ([xshift=-8mm]mux.west);
-\draw[->] (uds.south) |- ([xshift=8mm]mux.east);
+  node[midway,right,align=center]{[tag$\mid$payload]};
+\draw[->,dashed] (uds.east) -- ++(4mm,0) -- ++(0,3mm) -|
+  node[pos=0.75,right,align=center]{escalation guard:\\ classified UDS but
+  $|{\rm msg}|+1 >$\\\texttt{UDS\_MAX\_DGRAM}: send via SHM\\
+  \emph{this message only}; state unchanged}
+  (shm.east);
+\draw[->] (shm.south) -- ([xshift=-9mm]mux.north);
+\draw[->] (uds.south) -- ([xshift=9mm]mux.north);
 \draw[->] (mux) -- (peer);
 \end{tikzpicture}
 \caption{AdaptIPC data flow through one endpoint. Every outbound message is
 classified by the EWMA/hysteresis router of Fig.~\ref{fig:decision} and
 transmitted either through the lock-free shared-memory ring buffer or the
-AF\_UNIX datagram fallback; each frame carries a one-byte transport tag.
-The dashed edge is the escalation guard: an individual UDS-classified
-message that exceeds the datagram ceiling is sent via SHM without moving
-the sticky routing state. On the receiving side, the
+AF_UNIX datagram fallback; each frame carries a one-byte transport tag.
+Dashed edge: the escalation guard sends an individual UDS-classified
+message via SHM when it exceeds the datagram ceiling, without moving the
+sticky routing state. On the receiving side, the
 \texttt{adapt\_recv()} multiplexer accepts whichever transport delivers
 next (Section~IV-D).}
 \label{fig:arch}

@@ -434,42 +434,46 @@ resulting per-message data flow through one endpoint.
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[font=\scriptsize,>=Latex,
-  box/.style={draw,rounded corners=1pt,align=center,inner sep=3pt},
-  lbl/.style={font=\tiny,align=center}]
+\begin{tikzpicture}[font=\scriptsize,>=Latex,node distance=4mm,
+  box/.style={draw,rounded corners=1pt,align=center,minimum height=6mm,
+              inner sep=2.5pt}]
 \node[box] (app) {Application};
 \node[box,below=4mm of app] (api)
   {\texttt{adapt\_send()} / \texttt{adapt\_recv()}};
 \node[box,below=4mm of api] (rt)
-  {\textbf{Router}\\ EWMA state $\bar S_t$ + sticky route};
-\node[box,below left=6mm and 1mm of rt.south] (shm)
-  {\textbf{SHM ring buffer}\\ \texttt{shm\_open}/\texttt{mmap}\\
+  {\textbf{Router}\\ EWMA state $\sbar$ + sticky route\\ (Fig.~\ref{fig:decision})};
+\node[box,below left=6.5mm and -13mm of rt.south] (shm)
+  {\textbf{SHM ring buffer}\\ \texttt{shm\_open} / \texttt{mmap}\\
    head/tail cursors};
-\node[box,below right=6mm and 1mm of rt.south] (uds)
-  {\textbf{UDS fallback}\\ AF\_UNIX \texttt{SOCK\_DGRAM}};
-\node[box,below=7mm of rt.south] (mux)
-  {\texttt{adapt\_recv()}: ring poll / bounded \texttt{poll(2)} on UDS};
+\node[box,below right=6.5mm and -13mm of rt.south] (uds)
+  {\textbf{UDS fallback}\\ AF\_UNIX \texttt{SOCK\_DGRAM}\\ bounded
+   \texttt{poll(2)} receive};
+\node[box,below=17mm of rt] (mux)
+  {\texttt{adapt\_recv()} multiplexer:\\ ring poll $\vee$ bounded UDS wait
+   \\ (transport-tag demultiplex)};
 \node[box,below=4mm of mux] (peer) {Peer application};
 \draw[->] (app) -- (api);
 \draw[->] (api) -- (rt);
 \draw[->] (rt) -- (shm)
-  node[lbl,midway,left,align=right]{frame\\ (tag + payload)};
+  node[midway,left,align=center]{[tag$\mid$payload]};
 \draw[->] (rt) -- (uds)
-  node[lbl,midway,right,align=left]{frame\\ (tag + payload)};
-\draw[->,dashed] (uds.west) to[out=180,in=0]
-  node[lbl,midway,above]{escalation guard: oversized UDS-classified
-  message $\to$ SHM (state unchanged)} (shm.east);
-\draw[->] (shm.south) |- ([xshift=-8mm]mux.west);
-\draw[->] (uds.south) |- ([xshift=8mm]mux.east);
+  node[midway,right,align=center]{[tag$\mid$payload]};
+\draw[->,dashed] (uds.east) -- ++(4mm,0) -- ++(0,3mm) -|
+  node[pos=0.75,right,align=center]{escalation guard:\\ classified UDS but
+  $|{\rm msg}|+1 >$\\\texttt{UDS\_MAX\_DGRAM}: send via SHM\\
+  \emph{this message only}; state unchanged}
+  (shm.east);
+\draw[->] (shm.south) -- ([xshift=-9mm]mux.north);
+\draw[->] (uds.south) -- ([xshift=9mm]mux.north);
 \draw[->] (mux) -- (peer);
 \end{tikzpicture}
 \caption{AdaptIPC data flow through one endpoint. Every outbound message is
 classified by the EWMA/hysteresis router of Fig.~\ref{fig:decision} and
 transmitted either through the lock-free shared-memory ring buffer or the
-AF\_UNIX datagram fallback; each frame carries a one-byte transport tag.
-The dashed edge is the escalation guard: an individual UDS-classified
-message that exceeds the datagram ceiling is sent via SHM without moving
-the sticky routing state. On the receiving side, the
+AF_UNIX datagram fallback; each frame carries a one-byte transport tag.
+Dashed edge: the escalation guard sends an individual UDS-classified
+message via SHM when it exceeds the datagram ceiling, without moving the
+sticky routing state. On the receiving side, the
 \texttt{adapt\_recv()} multiplexer accepts whichever transport delivers
 next (Section~IV-D).}
 \label{fig:arch}
@@ -653,72 +657,7 @@ high-throughput SHM ring, without application intervention.}
 \label{fig:cdf}
 \end{figure}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig3_hysteresis_adaptation.png}
-\caption{AdaptIPC engine under the 100{,}000-iteration thrash workload.
-The dense vertical banding in the left-axis series is the per-message
-payload oscillation itself---each message alternates between 1024\,B and
-4096\,B (with intermediate sizes) inside the deadband
-$\Delta_\tau = \tauhigh - \taulow = 3072$\,B; it does \emph{not} indicate
-route changes. For rendering efficiency, consecutive duplicate payload-size
-samples are collapsed into single plotted steps; this collapsing is a
-plotting artifact only---some duplicates arise specifically because
-4096\,B frames exceed the datagram ceiling and are escalated from UDS to
-SHM without moving the sticky hysteresis state (Section~IV-C)---and it is
-not evidence of route or payload change. The right-axis active-route line
-remains flat at UDS for the entire run: the EWMA state machine performs
-zero route switches (and hence zero false switches) over all 100{,}000
-iterations, empirically validating the stability proof of Section~III-D.}
-\label{fig:adapt}
-\end{figure}
 
-\subsection{Limitations}
-\label{sec:limitations}
-Instrumentation of the router (in-process counters over the full
-100{,}000-iteration bimodal run) exonerates the components one might first
-suspect. The EWMA update and route decision cost 23\,ns per message; the
-\texttt{poll(2)}-based bounded receive hit its 2\,ms timeout on only 29 of
-100{,}000 deliveries, and 94.6\% of messages were delivered by the very
-first ring poll; staging-buffer allocation was eliminated entirely by
-scatter-gather ring writes. The measured residual latency cost is
-\emph{queueing delay}: the shared-memory ring is deliberately deep
-(64\,MB) to decouple producer and consumer for throughput, and under a
-sustained 2\,MB-message backlog the producer can outrun the consumer's
-drain rate, so a message may wait behind tens of megabytes of buffered
-traffic ($\approx$4.8\,ms median on the bimodal workload). This is an
-intentional, throughput-oriented tradeoff rather than per-message overhead:
-the same engine shows 20\,$\mu$s median latency on the sweep workload once
-backlog is shallow. Bounding latency via high/low watermark flow control
-(at some cost to peak throughput) is left for future work. All values in
-this section come from a single coherent measurement campaign; we observed
-run-to-run throughput variance of up to ${\sim}3\times$ on the UDS baseline
-under background system load, so camera-ready numbers should be reported as
-medians over repeated runs. We explicitly note one consequence: in
-Table~\ref{tab:results} the Thrash SHM entry (4{,}515\,MB/s) is \emph{lower}
-than the corresponding Sweep (6{,}553\,MB/s) and Bimodal (7{,}387\,MB/s)
-entries, inverting the ordering of Fig.~\ref{fig:sweep}. This inversion is
-measurement variance, not a property of the ring buffer: the thrash
-workload transfers only 265\,MB in 20--85\,ms of wall time---too brief to
-reach steady state---and across seven repeated thrash/SHM measurements
-throughput spanned 3.1--13.2\,GB/s, with the fastest run exceeding every
-sweep SHM measurement. Short small-message runs are simply far more
-sensitive to background load than multi-second bulk transfers.
-Figure~\ref{fig:breakdown} visualizes the measured decomposition for the
-sweep and bimodal workloads.
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{fig5_latency_breakdown.pdf}
-\caption{Measured latency decomposition for the AdaptIPC engine (log
-scale) on the sweep and bimodal workloads, derived from in-process
-counters: per-message router cost (EWMA update + route decision), mean
-receiver poll wait per delivery, and median end-to-end latency. Component
-costs are two to three orders of magnitude below the end-to-end bimodal
-median, confirming that the residual latency is queueing delay behind
-buffered bulk traffic rather than per-message processing overhead.}
-\label{fig:breakdown}
-\end{figure}
 
 \section{Conclusion and Future Work}
 AdaptIPC demonstrates that IPC transport selection can be dynamic,

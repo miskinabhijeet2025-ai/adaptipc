@@ -432,48 +432,7 @@ Unix-domain-socket fallback, and the routing state machine exposed through
 \texttt{adapt\_recv(void*, size\_t)}. Figure~\ref{fig:arch} shows the
 resulting per-message data flow through one endpoint.
 
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}[font=\scriptsize,>=Latex,
-  box/.style={draw,rounded corners=1pt,align=center,inner sep=3pt},
-  lbl/.style={font=\tiny,align=center}]
-\node[box] (app) {Application};
-\node[box,below=4mm of app] (api)
-  {\texttt{adapt\_send()} / \texttt{adapt\_recv()}};
-\node[box,below=4mm of api] (rt)
-  {\textbf{Router}\\ EWMA state $\bar S_t$ + sticky route};
-\node[box,below left=6mm and 1mm of rt.south] (shm)
-  {\textbf{SHM ring buffer}\\ \texttt{shm\_open}/\texttt{mmap}\\
-   head/tail cursors};
-\node[box,below right=6mm and 1mm of rt.south] (uds)
-  {\textbf{UDS fallback}\\ AF\_UNIX \texttt{SOCK\_DGRAM}};
-\node[box,below=7mm of rt.south] (mux)
-  {\texttt{adapt\_recv()}: ring poll / bounded \texttt{poll(2)} on UDS};
-\node[box,below=4mm of mux] (peer) {Peer application};
-\draw[->] (app) -- (api);
-\draw[->] (api) -- (rt);
-\draw[->] (rt) -- (shm)
-  node[lbl,midway,left,align=right]{frame\\ (tag + payload)};
-\draw[->] (rt) -- (uds)
-  node[lbl,midway,right,align=left]{frame\\ (tag + payload)};
-\draw[->,dashed] (uds.west) to[out=180,in=0]
-  node[lbl,midway,above]{escalation guard: oversized UDS-classified
-  message $\to$ SHM (state unchanged)} (shm.east);
-\draw[->] (shm.south) |- ([xshift=-8mm]mux.west);
-\draw[->] (uds.south) |- ([xshift=8mm]mux.east);
-\draw[->] (mux) -- (peer);
-\end{tikzpicture}
-\caption{AdaptIPC data flow through one endpoint. Every outbound message is
-classified by the EWMA/hysteresis router of Fig.~\ref{fig:decision} and
-transmitted either through the lock-free shared-memory ring buffer or the
-AF\_UNIX datagram fallback; each frame carries a one-byte transport tag.
-The dashed edge is the escalation guard: an individual UDS-classified
-message that exceeds the datagram ceiling is sent via SHM without moving
-the sticky routing state. On the receiving side, the
-\texttt{adapt\_recv()} multiplexer accepts whichever transport delivers
-next (Section~IV-D).}
-\label{fig:arch}
-\end{figure}
+% ARCH FIG DISABLED FOR BISECTION
 
 \subsection{Lock-Free SPSC Ring Buffer (\texttt{shm\_ringbuffer.c})}
 The fast path is a single-producer/single-consumer ring buffer over POSIX

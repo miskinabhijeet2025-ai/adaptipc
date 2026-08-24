@@ -1,0 +1,23 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\begin{document}
+\newcommand{\taulow}{\tau_{\mathrm{low}}}
+\newcommand{\tauhigh}{\tau_{\mathrm{high}}}
+\newcommand{\sbar}{\bar{S}}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig5_latency_breakdown.pdf}
+\caption{Measured latency decomposition for the AdaptIPC engine (log
+scale) on the sweep and bimodal workloads, derived from in-process
+counters: per-message router cost (EWMA update + route decision), mean
+receiver poll wait per delivery, and median end-to-end latency. Component
+costs are two to three orders of magnitude below the end-to-end bimodal
+median, confirming that the residual latency is queueing delay behind
+buffered bulk traffic rather than per-message processing overhead.}
+\label{fig:breakdown}
+\end{figure
+\end{tikzpicture}
+\end{document}

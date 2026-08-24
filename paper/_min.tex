@@ -1,0 +1,12 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\begin{document}
+\begin{tikzpicture}[font=\scriptsize,>=Latex,node distance=4mm,
+  box/.style={draw,rounded corners=1pt,align=center,minimum height=6mm}]
+\node[box] (rt)
+  {\textbf{Router}\\ EWMA state + sticky route\\ (Fig.~\ref{fig:decision})};
+\node[box,below=4mm of rt] (x) {next};
+\draw[->] (rt) -- (x);
+\end{tikzpicture}
+\end{document}
