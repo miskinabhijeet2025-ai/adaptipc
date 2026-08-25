@@ -573,27 +573,29 @@ Figure~\ref{fig:mux} depicts this receive loop.
 \centering
 \begin{tikzpicture}[font=\scriptsize,>=Latex,
   box/.style={draw,rounded corners=1pt,align=center,
-              text width=40mm,inner sep=3pt},
-  dec/.style={draw,diamond,aspect=3.4,align=center,inner sep=1.5pt},
+              text width=34mm,inner sep=3pt},
+  dec/.style={draw,diamond,aspect=2.6,align=center,inner sep=1.5pt},
   elbl/.style={font=\tiny,fill=white,inner sep=1pt}]
 \node[box] (pop) at (0,0)
   {non-blocking SHM ring poll\\ (\texttt{shm\_ring\_pop()})};
-\node[dec] (avail) at (0,-1.9) {record available?};
-\node[box] (wait) at (0,-4.0)
-  {\texttt{poll(2)} on UDS socket\\ bounded wait: 2\,ms timeout};
-\node[dec] (dgram) at (0,-6.0) {datagram arrived?};
-\node[box,text width=27mm] (del) at (8.4,-3.0)
-  {deliver:\\ strip 1-B transport tag\\ copy payload to caller};
-\draw[->] (pop.south) -- node[elbl,right]{no} (avail.north);
-\draw[->] (avail.east) -- node[elbl,above,pos=0.4]{yes} (del.west);
+\node[dec] (avail) at (0,-1.7) {record available?};
+\node[box] (wait) at (0,-3.4)
+  {\texttt{poll(2)} on UDS socket\\ bounded wait: 2\,ms};
+\node[dec] (dgram) at (0,-5.1) {datagram arrived?};
+\node[box,text width=30mm] (del) at (1.8,-7.3)
+  {deliver: strip 1-B transport tag, copy payload to caller};
+% ring-record path: yes -> right lane -> down into deliver
+\draw[->] (avail.east) -- ++(14mm,0)
+  node[elbl,pos=0.3,above]{yes} |-
+  ([xshift=7mm]del.north) -- (del.north);
+% no -> poll UDS
 \draw[->] (avail.south) -- node[elbl,right]{no} (wait.north);
 \draw[->] (wait.south) -- (dgram.north);
-\draw[->] (dgram.east) -- node[elbl,above,pos=0.45]{yes}
-  ([yshift=-3mm]del.south);
-% timeout loop: dedicated far-left lane, rotated label along the wire
-\draw[->] (dgram.west) -- ++(-3.4cm,0)
-  node[elbl,pos=0.45,rotate=90]{timeout: re-poll ring} |-
-  ([xshift=-3mm]pop.west) -- (pop.west);
+\draw[->] (dgram.south) -- node[elbl,right]{yes} (del.north);
+% timeout: re-poll ring (left lane)
+\draw[->] (dgram.west) -- ++(-15mm,0)
+  node[elbl,pos=0.45,above]{timeout: re-poll ring} |-
+  ([xshift=-9mm]pop.west) -- (pop.west);
 \end{tikzpicture}
 \caption{The \texttt{adapt\_recv()} multiplexer loop
 (Section~IV-D). Each iteration first polls the shared-memory ring without
@@ -605,6 +607,7 @@ the caller; this loop is what fixes the backlog deadlock described in the
 text.}
 \label{fig:mux}
 \end{figure}
+
 
 
 A second defect, found through counter-based instrumentation, was subtler:
