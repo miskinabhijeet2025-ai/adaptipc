@@ -5,7 +5,7 @@
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc}
 \usepackage{booktabs}
 \usepackage{url}
 
@@ -244,15 +244,15 @@ against two thresholds, $\taulow = 1024$ bytes and $\tauhigh = 4096$ bytes:
 \begin{tikzpicture}[font=\scriptsize,>=Latex,node distance=4mm,
   box/.style={draw,rounded corners=1pt,align=center,minimum height=5mm,
               inner sep=2pt},
-  dec/.style={draw,diamond,aspect=2.2,align=center,inner sep=1pt}]
+  dec/.style={draw,diamond,aspect=3,align=center,inner sep=2pt}]
 \node[box] (msg) {message with size $S_t$};
 \node[box,below=3.5mm of msg] (upd) {update EWMA (eq.~\eqref{eq:ewma})};
-\node[dec,below=4mm of upd] (d1) {$\sbar_t \geq \tauhigh$?};
+\node[dec,below=9mm of upd] (d1) {$\sbar_t \geq \tauhigh$?};
 \node[dec,below=4mm of d1] (d2) {$\sbar_t \leq \taulow$?};
-\node[box,right=6mm of d1] (shm) {\textsc{Shm}};
-\node[box,right=6mm of d2] (uds) {\textsc{Uds}};
+\node[box,right=9mm of d1] (shm) {\textsc{Shm}};
+\node[box,right=9mm of d2] (uds) {\textsc{Uds}};
 \node[box,below=4mm of d2] (sticky) {keep $\mathrm{route}(t{-}1)$\\(deadband)};
-\node[box,below=4mm of sticky] (eg) {\textbf{escalation guard}: route is
+\node[box,below=9mm of sticky,text width=64mm] (eg) {\textbf{escalation guard}: route is
   \textsc{Uds} but $|{\rm msg}|+1 >$ \texttt{UDS\_MAX\_DGRAM}\\
   $\Rightarrow$ send via SHM \emph{this message only}
   ($\sbar$ / last\_route unchanged)};
@@ -432,48 +432,76 @@ Unix-domain-socket fallback, and the routing state machine exposed through
 \texttt{adapt\_recv(void*, size\_t)}. Figure~\ref{fig:arch} shows the
 resulting per-message data flow through one endpoint.
 
-\begin{figure}[t]
+\begin{figure*}[t]
 \centering
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[font=\scriptsize,>=Latex,
-  box/.style={draw,rounded corners=1pt,align=center,inner sep=3pt},
+  box/.style={draw,rounded corners=1pt,align=center,
+              text width=27mm,inner sep=3pt},
+  wbox/.style={draw,densely dotted,rounded corners=1pt,align=center,
+               text width=21mm,inner sep=2pt},
   lbl/.style={font=\tiny,align=center}]
+% ---------- sender (producer role) ----------
 \node[box] (app) {Application};
-\node[box,below=4mm of app] (api)
-  {\texttt{adapt\_send()} / \texttt{adapt\_recv()}};
-\node[box,below=4mm of api] (rt)
-  {\textbf{Router}\\ EWMA state $\bar S_t$ + sticky route};
-\node[box,below left=6mm and 1mm of rt.south] (shm)
-  {\textbf{SHM ring buffer}\\ \texttt{shm\_open}/\texttt{mmap}\\
-   head/tail cursors};
-\node[box,below right=6mm and 1mm of rt.south] (uds)
-  {\textbf{UDS fallback}\\ AF\_UNIX \texttt{SOCK\_DGRAM}};
-\node[box,below=7mm of rt.south] (mux)
-  {\texttt{adapt\_recv()}: ring poll / bounded \texttt{poll(2)} on UDS};
-\node[box,below=4mm of mux] (peer) {Peer application};
-\draw[->] (app) -- (api);
-\draw[->] (api) -- (rt);
-\draw[->] (rt) -- (shm)
-  node[lbl,midway,left,align=right]{frame\\ (tag + payload)};
-\draw[->] (rt) -- (uds)
-  node[lbl,midway,right,align=left]{frame\\ (tag + payload)};
-\draw[->,dashed] (uds.west) to[out=180,in=0]
-  node[lbl,midway,above]{escalation guard: oversized UDS-classified
-  message $\to$ SHM (state unchanged)} (shm.east);
-\draw[->] (shm.south) |- ([xshift=-8mm]mux.west);
-\draw[->] (uds.south) |- ([xshift=8mm]mux.east);
-\draw[->] (mux) -- (peer);
-\end{tikzpicture}
-\caption{AdaptIPC data flow through one endpoint. Every outbound message is
-classified by the EWMA/hysteresis router of Fig.~\ref{fig:decision} and
-transmitted either through the lock-free shared-memory ring buffer or the
-AF\_UNIX datagram fallback; each frame carries a one-byte transport tag.
-The dashed edge is the escalation guard: an individual UDS-classified
-message that exceeds the datagram ceiling is sent via SHM without moving
-the sticky routing state. On the receiving side, the
-\texttt{adapt\_recv()} multiplexer accepts whichever transport delivers
-next (Section~IV-D).}
+\node[box,below=5mm of app,text width=32mm] (send)
+  {\texttt{adapt\_send()}:\\ EWMA update $+$ hysteresis route decision};
+\node[wbox] (tagw) at ($(send.east)+(14mm,5mm)$)
+  {wire frame\\\texttt{[1-B tag $|$ payload]}};
+\node[box] (shmw) at ($(send.east)+(36mm,5mm)$)
+  {\textbf{SHM ring --- producer}\\ scatter-write record\\
+   release-store \texttt{head}};
+\node[box] (udsw) at ($(send.east)+(36mm,-15mm)$)
+  {\textbf{UDS socket --- send}\\ \texttt{sendto()} datagram\\
+   (\texttt{ENOBUFS}/\texttt{EINTR} retry)};
+\draw[->] (app) -- (send);
+\draw[->] (send) -- (tagw);
+\draw[->] (tagw) -- (shmw);
+\draw[->] (send.east) to[out=-20,in=180]
+  node[lbl,midway,below=1mm]{\texttt{sendto()}} (udsw.west);
+% escalation guard: parallel dashed lane below the main SHM path
+\draw[->,dashed] ([yshift=-2mm]send.east) to[out=-23,in=178]
+  node[lbl,pos=0.72,below=1mm,text width=38mm]{\textbf{escalation guard}: classified UDS but oversized ($>$ \texttt{UDS\_MAX\_DGRAM}) $\to$ sent via SHM; routing state unchanged}
+  ([yshift=-2mm]shmw.west);
+
+% ---------- shared-memory and datagram wires ----------
+\node[wbox] (wirem) at ($(shmw.east)+(24mm,0)$)
+  {POSIX shared memory\\ (head/tail cursors)};
+\node[wbox] (wireu) at ($(shmw.east)+(24mm,-15mm)$)
+  {AF\_UNIX datagram\\ kernel socket queue};
+
+% ---------- receiver (consumer role) ----------
+\node[box] (shmr) at ($(wirem.east)+(15mm,0)$)
+  {\textbf{SHM ring --- consumer}\\ non-blocking pop\\
+   acquire-load \texttt{head}\\ release-store \texttt{tail}};
+\node[box] (udsr) at ($(wireu.east)+(15mm,-15mm)$)
+  {\textbf{UDS --- receive}\\ \texttt{poll(2)}-bounded wait (2\,ms)\\
+   \texttt{recvfrom()} datagram};
+\node[box] (mux) at ($(shmr.east)+(15mm,-7.5mm)$)
+  {\texttt{adapt\_recv()} multiplexer:\\ demultiplex by 1-B transport tag};
+\node[box] (app2) at ($(mux.east)+(12mm,-1.5mm)$) {Application};
+
+\draw[<->] (shmw.east) -- (wirem.west);
+\draw[->] (wirem.east) -- (shmr.west);
+\draw[<->] (udsw.east) -- (wireu.west);
+\draw[->] (wireu.east) -- (udsr.west);
+\draw[->] (shmr.south) to[out=-90,in=155] (mux.150);
+\draw[->] (udsr.north) to[out=90,in=30] (mux.30);
+\draw[->] (mux) -- (app2);
+\end{tikzpicture}}%
+\caption{AdaptIPC architecture: one endpoint shown end to end. Sender side
+(left): \texttt{adapt\_send()} classifies each message with the
+EWMA/hysteresis router (Fig.~\ref{fig:decision}), attaches the one-byte
+transport tag, and forwards it either to the lock-free SHM ring producer
+(release-stores \texttt{head}) or to the UDS datagram socket. The dashed
+edge is the escalation guard: an individual UDS-classified message larger
+than the datagram ceiling is sent via SHM without changing the routing
+state. Receiver side (right): the \texttt{adapt\_recv()} multiplexer
+accepts whichever transport delivers next, strips the transport tag, and
+hands the payload to the application; the SHM consumer acquires
+\texttt{head} and release-stores \texttt{tail} per pop.}
 \label{fig:arch}
-\end{figure}
+\end{figure*}
+
 
 \subsection{Lock-Free SPSC Ring Buffer (\texttt{shm\_ringbuffer.c})}
 The fast path is a single-producer/single-consumer ring buffer over POSIX
@@ -536,32 +564,41 @@ Figure~\ref{fig:mux} depicts this receive loop.
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[font=\scriptsize,>=Latex,node distance=4mm,
-  box/.style={draw,rounded corners=1pt,align=center,minimum height=6mm,
-              inner sep=2.5pt},
-  dec/.style={draw,diamond,aspect=2.4,align=center,inner sep=1pt}]
-\node[box] (pop) {\texttt{shm\_ring\_pop()} --- non-blocking ring poll};
-\node[dec,below=5mm of pop] (got) {record available?};
-\node[box,below left=6.5mm and -14mm of got.south] (uds)
+\begin{tikzpicture}[font=\scriptsize,>=Latex,
+  box/.style={draw,rounded corners=1pt,align=center,
+              text width=40mm,inner sep=3pt},
+  dec/.style={draw,diamond,aspect=3.4,align=center,inner sep=1.5pt},
+  elbl/.style={font=\tiny,fill=white,inner sep=1pt}]
+\node[box] (pop) at (0,0)
+  {non-blocking SHM ring poll\\ (\texttt{shm\_ring\_pop()})};
+\node[dec] (avail) at (0,-1.9) {record available?};
+\node[box] (wait) at (0,-4.0)
   {\texttt{poll(2)} on UDS socket\\ bounded wait: 2\,ms timeout};
-\node[box,below right=6.5mm and -14mm of got.south] (del)
-  {deliver record:\\ strip tag, copy to caller};
-\node[box,left=8mm of uds] (to) {timeout};
-\draw[->] (pop) -- (got);
-\draw[->] (got.east) -| node[above,pos=0.25]{yes} (del.north);
-\draw[->] (got.west) -| node[above,pos=0.25]{empty} (uds.north);
-\draw[->] (uds) -- node[above]{datagram} (del);
-\draw[->] (uds.west) -- node[above]{timeout} (to.east);
-\draw[->] (to.north) |- ([yshift=-3mm]pop.south) -- (pop.south);
+\node[dec] (dgram) at (0,-6.0) {datagram arrived?};
+\node[box,text width=27mm] (del) at (8.4,-3.0)
+  {deliver:\\ strip 1-B transport tag\\ copy payload to caller};
+\draw[->] (pop.south) -- node[elbl,right]{no} (avail.north);
+\draw[->] (avail.east) -- node[elbl,above,pos=0.4]{yes} (del.west);
+\draw[->] (avail.south) -- node[elbl,right]{no} (wait.north);
+\draw[->] (wait.south) -- (dgram.north);
+\draw[->] (dgram.east) -- node[elbl,above,pos=0.45]{yes}
+  ([yshift=-3mm]del.south);
+% timeout loop: dedicated far-left lane, rotated label along the wire
+\draw[->] (dgram.west) -- ++(-3.4cm,0)
+  node[elbl,pos=0.45,rotate=90]{timeout: re-poll ring} |-
+  ([xshift=-3mm]pop.west) -- (pop.west);
 \end{tikzpicture}
 \caption{The \texttt{adapt\_recv()} multiplexer loop
 (Section~IV-D). Each iteration first polls the shared-memory ring without
-blocking; if empty, it waits at most 2\,ms on the UDS socket before
-re-polling the ring. This bounds the added latency by the poll interval
-while guaranteeing that arrivals on either transport are observed,
-which is what fixes the deadlock described in the text.}
+blocking; if it is empty, the UDS socket is waited on through a bounded
+\texttt{poll(2)} (2\,ms) before the ring is re-polled, so arrivals on
+either transport are always observed. Whichever transport delivers next,
+the receiver strips the one-byte transport tag and hands the payload to
+the caller; this loop is what fixes the backlog deadlock described in the
+text.}
 \label{fig:mux}
 \end{figure}
+
 
 A second defect, found through counter-based instrumentation, was subtler:
 \texttt{adapt\_send()} originally re-applied the EWMA update on every
