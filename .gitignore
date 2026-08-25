@@ -29,3 +29,15 @@ __pycache__/
 # --- archives / macOS compress artifacts ---
 *.zip
 __MACOSX/
+# one-off repair scripts
+merge_decision.py
+fix_regressions.py
+restore_authors.py
+rewire_decision.py
+rewire_esc.py
+replace_arch.py
+replace_mux2.py
+recover_figs.py
+disable_edge.py
+disable_figref.py
+check_page*.png
