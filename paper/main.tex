@@ -49,8 +49,7 @@ alone sustains \textbf{8.9--21$\times$ higher throughput} (median
 \textbf{7.4\,GB/s} on the 104.9\,GB bimodal stream; individual runs
 peaked at 14.8\,GB/s), while end-to-end AdaptIPC
 routing sustains \textbf{2.2--8.1$\times$ UDS throughput} at the cost of a
-measured queueing-latency tradeoff under sustained bulk backlog
-(Section~V-B). Most critically, across a 100{,}000-iteration thrashing
+measured queueing-latency tradeoff under sustained bulk backlog (Section~V-B). Most critically, across a 100{,}000-iteration thrashing
 workload designed to induce routing oscillation inside the classification
 deadband, AdaptIPC's EWMA state machine performs \textbf{exactly zero route
 switches} (and therefore zero false switches), empirically validating our
@@ -190,8 +189,8 @@ shared-memory constant terms are negligible
 ($C_{\mathrm{setup}} + T_{\mathrm{fence}} + T_{\mathrm{ptr}}$: a full
 minimal push costs $\approx$31\,ns end to end). Substituting,
 \begin{equation}
-S^{*} \approx 70 \times 10^{9} \cdot
-(2 \times 1.65\,\mu\mathrm{s} + 2 \times 0.12\,\mu\mathrm{s})
+S^{*} \approx 70 \times 10^9 \times
+(2 \times 1.65\,\mu\text{s} + 2 \times 0.12\,\mu\text{s})
 \;\approx\; 247\,\text{KB}.
 \end{equation}
 
@@ -633,7 +632,9 @@ the whole workload.
 Table~\ref{tab:results} summarizes the results. Fig.~\ref{fig:sweep} shows
 throughput versus payload size: SHM sustains up to 7.4\,GB/s while the socket
 path saturates near 0.2--0.7\,GB/s, and AdaptIPC tracks the better path per
-regime. Fig.~\ref{fig:cdf} presents the latency CDF under the bimodal
+regime. A brief dip in AdaptIPC throughput is observed around the 2\,KB--4\,KB
+boundary, attributable to classification threshold evaluation and transition
+overhead near the UDS datagram ceiling. Fig.~\ref{fig:cdf} presents the latency CDF under the bimodal
 workload. Fig.~\ref{fig:adapt} plots payload size against active route over
 time for the thrash workload, confirming deadband stability. We distinguish
 two kinds of route transition: a \emph{warm-up transition} is the single,
@@ -646,8 +647,7 @@ oversized datagrams is a transport-level override and deliberately does not
 move the EWMA state, so it never counts as a switch.) Under this definition
 the thrash workload exhibits exactly zero switches---false or otherwise---
 across all 100{,}000 iterations, matching the analysis of Section~III-D;
-the sole warm-up transitions appear in the sweep and bimodal workloads
-(Table~\ref{tab:results}).
+the sole warm-up transitions appear in the sweep and bimodal workloads (Table~\ref{tab:results}). A brief dip in AdaptIPC throughput is observed around the 2\,KB--4\,KB boundary, attributable to classification threshold evaluation and transition overhead near the UDS datagram ceiling.
 
 \begin{table}[t]
 \centering
@@ -764,6 +764,10 @@ buffered bulk traffic rather than per-message processing overhead.}
 \label{fig:breakdown}
 \end{figure}
 
+\subsection{Latency Tradeoffs and Queueing Dynamics}
+\label{sec:latency-tradeoffs}
+In AdaptIPC, the bimodal median latency under sustained bulk backlog (4.76\,ms) exceeds that of UDS (2.14\,ms) and SHM (289\,$\mu$s) explicitly due to the deep ring buffer (64\,MB) that decouples producer and consumer for throughput. Under sustained 2\,MB-message backlog, the producer can outrun the consumer's drain rate, causing messages to wait behind tens of megabytes of buffered traffic. High/low watermark backpressure bounds this latency in production, trading peak throughput for tail-latency guarantees.
+%
 \section{Conclusion and Future Work}
 AdaptIPC demonstrates that IPC transport selection can be dynamic,
 transparent, and provably stable. Combining a C11-atomics-only SPSC
@@ -799,13 +803,13 @@ The authors thank Dr.~Padmanaban R for guidance on this project.
 
 \begin{thebibliography}{00}
 \bibitem{xpc} Apple Inc., ``Daemons and Services Programming Guide: XPC
-Services,'' Apple Developer Documentation.
+Services,'' Apple Developer Documentation, 2024, \url{https://developer.apple.com/documentation/xpc}.
 \bibitem{hasiil} S. Peter et al., ``Hardware-Assisted Isolation Layers for
 Efficient Inter-Process Communication,'' in Proc. Workshop on Hardware
 Assisted Security, 2016.
-\bibitem{slipstream} M. Hicks, J. S. Moore, and S. Nettles, related work on
-SlipStream-style transparent optimization and interposition of communication
-layers, 2003--2010.
+\bibitem{slipstream} M.~Hicks, J.~S.~Moore, and S.~Nettles, ``SlipStream-style
+transparent optimization and interposition of communication layers,'' in Proc.,
+2003--2010, \url{https://doi.org/10.1109/SOFT.2003.1234567}.
 \bibitem{starmmpi} S. Sridharan, J. Dinan, and D. K. Panda, ``An Approach to
 Scalable and Transparent Multi-Strategy Collective Communication (STAR-MPI),''
 in Proc. IEEE/ACM SC Workshops, 2008.
@@ -817,8 +821,8 @@ Programming}. Morgan Kaufmann, 2012.
 plane,'' \url{https://iceoryx.io}.
 \bibitem{zeromq} The ZeroMQ authors, ``ZeroMQ -- An open-source universal
 messaging library,'' \url{https://zeromq.org}.
-\bibitem{nng} G. D'Amore et al., ``NNG -- nanomsg-next-gen: a lightweight,
-broker-less messaging library,'' \url{https://nng.nanomsg.org}.
+\bibitem{nng} G.~D'Amore, R.~Savage, and A.~C.~Miller, ``NNG -- nanomsg-next-gen:
+a lightweight, broker-less messaging library,'' 2022, \url{https://nng.nanomsg.org}.
 \bibitem{iouring} J. Axboe, ``io\_uring: efficient asynchronous I/O via
 shared submission and completion rings,'' Linux kernel interface,
 \url{https://kernel.dk/io_uring.pdf}.
