@@ -66,8 +66,12 @@ void adapt_rtctx_sample(adapt_rtctx_t *rc, size_t payload,
         /* else: queue grew -- no drain sample this interval */
     }
 
-    rc->ewma_occ_bytes = alpha * (double)occ_before_push +
-        (1.0 - alpha) * rc->ewma_occ_bytes;
+    /* Occupancy is smoothed four times slower than the size EWMA: the
+     * queue-wait estimate feeds a routing decision whose switching
+     * cost must not be paid on every transient backlog spike. */
+    const double occ_a = alpha * 0.25;
+    rc->ewma_occ_bytes = occ_a * (double)occ_before_push +
+        (1.0 - occ_a) * rc->ewma_occ_bytes;
 
     rc->prev_occ_bytes = (double)occ_before_push + (double)payload;
     rc->last_ns = now_ns;

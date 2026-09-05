@@ -169,6 +169,9 @@ static void test_degradation_and_recovery(void)
     static unsigned char small[1024];
     memset(small, 0x44, sizeof(small));
     (void)adapt_send(g_prod, small, sizeof(small));
+    fprintf(stderr, "debug: route=%s ring=%zu cap=%zu\n",
+            adapt_route_name(adapt_last_route(g_prod)),
+            adapt_shm_used_bytes(g_prod), adapt_shm_capacity(g_prod));
     assert(adapt_last_route(g_prod) == ADAPT_ROUTE_UDS);
 
     /* Drain everything (adapt_recv blocks until a message arrives, so

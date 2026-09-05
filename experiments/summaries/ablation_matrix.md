@@ -2,24 +2,24 @@
 
 | policy | kind | message_count | throughput_mbps | p50_us | p95_us | p99_us | p99_9_us | route_switches | backpressure_events | notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| uds | uds | 15000 | 557.2 | 48.0 | 2167.4 | 4659.0 | 4859.0 | 0 | 0 | baseline setup |
-| shm | shm | 19500 | 13948.6 | 3346.0 | 7547.0 | 7786.0 | 7922.0 | 0 | 0 | baseline setup |
-| size_only | adapt | 19500 | 9424.8 | 1921.0 | 6954.0 | 8145.0 | 8791.0 | 0 | 0 | policy setup_u |
-| size_hysteresi | adapt | 19500 | 8667.4 | 1997.0 | 5159.0 | 6119.0 | 9228.8 | 0 | 0 | policy setup_u |
-| queue_aware | adapt | 19500 | 10636.6 | 1786.0 | 3900.0 | 4560.0 | 5341.0 | 0 | 0 | policy setup_u |
-| cost_aware | adapt | 19500 | 10917.1 | 2185.5 | 5859.0 | 6433.0 | 6580.5 | 0 | 0 | policy setup_u |
-| full_adaptive | adapt | 19500 | 10163.6 | 2519.0 | 5744.0 | 6347.0 | 7739.0 | 0 | 0 | policy setup_u |
-| uds | uds | 6000 | 8.5 | 26573.0 | 26798.0 | 26871.0 | 26910.0 | 0 | 0 | baseline setup |
-| shm | shm | 6000 | 8.0 | 710030.0 | 1394835.6 | 1458661.3 | 1471333.2 | 0 | 0 | baseline setup |
-| size_only | adapt | 5883 | 8.2 | 29080.0 | 29540.0 | 31843.0 | 32090.1 | 0 | 0 | dropped=117 (u |
-| size_hysteresi | adapt | 5882 | 8.2 | 29206.0 | 29561.0 | 29651.0 | 29780.2 | 0 | 0 | dropped=118 (u |
-| queue_aware | adapt | 5883 | 8.2 | 29046.0 | 29387.9 | 29530.2 | 29612.1 | 0 | 0 | dropped=117 (u |
-| cost_aware | adapt | 5883 | 8.2 | 29049.0 | 29509.9 | 29596.4 | 29669.0 | 0 | 0 | dropped=117 (u |
-| full_adaptive | adapt | 5883 | 8.1 | 29151.0 | 29549.0 | 29625.2 | 29688.2 | 0 | 0 | dropped=117 (u |
-| uds | uds | 12000 | 279.1 | 8.0 | 18.0 | 27.0 | 51.0 | 0 | 0 | baseline setup |
-| shm | shm | 12000 | 3030.3 | 707.5 | 1294.0 | 1312.0 | 1316.0 | 0 | 0 | baseline setup |
-| size_only | adapt | 12000 | 55.6 | 10.0 | 20.0 | 52.0 | 183.0 | 0 | 0 | policy setup_u |
-| size_hysteresi | adapt | 12000 | 51.2 | 14.0 | 35.0 | 106.0 | 591.1 | 0 | 0 | policy setup_u |
-| queue_aware | adapt | 12000 | 50.6 | 14.0 | 33.0 | 60.0 | 116.0 | 0 | 0 | policy setup_u |
-| cost_aware | adapt | 12000 | 49.3 | 16.0 | 37.0 | 57.0 | 111.0 | 0 | 0 | policy setup_u |
-| full_adaptive | adapt | 12000 | 52.0 | 13.0 | 31.0 | 64.0 | 124.0 | 0 | 0 | policy setup_u |
+| uds | uds | 15000 | 300.3 | 52.0 | 1000.0 | 6838.0 | 30953.0 | 0 | 0 | baseline setup |
+| shm | shm | 19500 | 12349.5 | 1201.0 | 4983.0 | 6453.0 | 7508.0 | 0 | 0 | baseline setup |
+| size_only | adapt | 19500 | 9403.6 | 2157.5 | 6620.0 | 7679.0 | 8475.0 | 1 | 28 | policy setup_u |
+| size_hysteresi | adapt | 19500 | 9742.9 | 1955.0 | 5457.0 | 5744.0 | 5911.0 | 1 | 28 | policy setup_u |
+| queue_aware | adapt | 19500 | 9598.2 | 2069.5 | 4564.0 | 5330.0 | 5882.5 | 1 | 28 | policy setup_u |
+| cost_aware | adapt | 19500 | 9656.2 | 2227.0 | 4315.1 | 5925.0 | 7086.0 | 0 | 21 | policy setup_u |
+| full_adaptive | adapt | 19500 | 9444.3 | 2217.0 | 4842.0 | 6500.0 | 7959.6 | 1 | 21 | policy setup_u |
+| uds | uds | 6000 | 9.9 | 22573.0 | 23400.1 | 28006.4 | 28821.0 | 0 | 0 | baseline setup |
+| shm | shm | 6000 | 10.1 | 580738.5 | 1105713.6 | 1152380.9 | 1162813.2 | 0 | 0 | baseline setup |
+| size_only | adapt | 5881 | 9.9 | 23894.0 | 24755.0 | 26375.2 | 26716.2 | 0 | 0 | dropped=119 (u |
+| size_hysteresi | adapt | 5882 | 10.1 | 23574.0 | 24029.0 | 26631.3 | 26992.0 | 0 | 0 | dropped=118 (u |
+| queue_aware | adapt | 5882 | 10.1 | 23532.0 | 23884.0 | 24491.2 | 24773.4 | 0 | 0 | dropped=118 (u |
+| cost_aware | adapt | 5882 | 10.0 | 23628.0 | 24258.9 | 24856.5 | 25175.6 | 0 | 0 | dropped=118 (u |
+| full_adaptive | adapt | 5881 | 10.1 | 23476.0 | 23742.0 | 24118.4 | 24268.1 | 0 | 0 | dropped=119 (u |
+| uds | uds | 12000 | 404.8 | 6.0 | 39.0 | 76.0 | 415.0 | 0 | 0 | baseline setup |
+| shm | shm | 12000 | 2719.0 | 747.0 | 2709.0 | 2726.0 | 2731.0 | 0 | 0 | baseline setup |
+| size_only | adapt | 12000 | 60.2 | 6.0 | 22.0 | 73.0 | 104.0 | 0 | 0 | policy setup_u |
+| size_hysteresi | adapt | 12000 | 59.8 | 6.0 | 34.0 | 196.0 | 385.0 | 0 | 0 | policy setup_u |
+| queue_aware | adapt | 12000 | 59.9 | 6.0 | 52.0 | 219.0 | 291.0 | 0 | 0 | policy setup_u |
+| cost_aware | adapt | 12000 | 60.1 | 5.0 | 17.0 | 68.0 | 114.0 | 0 | 0 | policy setup_u |
+| full_adaptive | adapt | 12000 | 59.6 | 6.0 | 36.0 | 90.0 | 132.0 | 0 | 0 | policy setup_u |

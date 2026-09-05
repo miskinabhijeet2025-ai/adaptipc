@@ -155,6 +155,13 @@ int adapt_send(adapt_ctx_t *ctx, const void *data, size_t size);
  * or -EAGAIN when nonblocking mode is set, negative errno otherwise. */
 int adapt_recv(adapt_ctx_t *ctx, void *buf, size_t max_size);
 
+/* Receive one message from the UDS fallback socket ONLY, ignoring the
+ * SHM ring. For applications that multiplex the fallback path
+ * themselves (e.g., draining the socket while deliberately letting a
+ * ring back up). Returns byte count (>0), -EAGAIN on timeout. */
+int adapt_recv_uds_timeout(adapt_ctx_t *ctx, void *buf, size_t max_size,
+                           int timeout_ms);
+
 /* Introspection for tests / instrumentation. */
 adapt_route_t  adapt_last_route(const adapt_ctx_t *ctx);
 double         adapt_ewma(const adapt_ctx_t *ctx);

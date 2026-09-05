@@ -126,3 +126,91 @@ rights remain with the authors. If you wish to reuse the code or text,
 please open an issue or contact the authors. (The paper text in `paper/`
 may additionally be subject to copyright transfer to its publication
 venue.)
+
+---
+
+# Context-Aware Routing (v2 extension)
+
+The sections above describe the **validated size-based baseline**
+(policy `size_hysteresis`). Version 2 extends the router into a
+context-aware, cost-aware, latency-aware system while preserving the
+original policy as an ablation baseline.
+
+## Architecture
+
+```
+Application
+    ↓ adapt_send()
+Context Collector (runtime_context.c)
+    payload size, ring occupancy, EWMA arrival rate,
+    EWMA consumer drain rate, consumer-activity signal
+    ↓
+Cost Estimator (cost_model.c)
+    cost_T(S) = fixed_T + slope_T·S          (online-calibrated)
+    queue_wait(SHM) = occupancy / drain_rate  (conservative fallback)
+    notify floor (SHM) = 2 ms if consumer idle, else ~5 µs
+    setup cost (SHM, if unmapped) = 52 µs
+    ↓
+Adaptive Policy
+    Score(T) = transport_cost + queue_cost + setup_cost
+             + switching_cost + health_penalty + latency_penalty
+    switch only if  Score(new) + margin < Score(current)
+    ↓
+Transport Health (transport_health.c)
+    HEALTHY ⇄ DEGRADED ⇄ BLOCKED → RECOVERING → HEALTHY (debounced)
+```
+
+## Policy modes (ablation ladder)
+
+| mode | behavior |
+|---|---|
+| `size_only` | raw EWMA threshold, no deadband |
+| `size_hysteresis` | original validated policy (default) |
+| `queue_aware` | + queue-wait escape from a backlogged ring |
+| `cost_aware` | + measured per-transport costs, switching margin, setup and notification modeling |
+| `full_adaptive` | + transport health, learned crossover, QoS |
+
+Select via `adapt_config_t.policy` or `ADAPTIPC_POLICY=<name>`.
+QoS: `adapt_config_t.qos` ∈ {balanced, latency, throughput} plus
+`latency_budget_us` (env: `ADAPTIPC_QOS`, `ADAPTIPC_LATENCY_BUDGET_US`).
+
+## Stability argument
+
+The decision margin H implements the same anti-thrash guarantee as the
+size-only deadband: if per-side cost-estimation error is bounded by ε,
+noise alone cannot flip a route while H > 2ε. The learned crossover S*
+is clamped to a bounded range and rate-limited by an EWMA; the health
+model requires `debounce` consecutive samples before any transition.
+
+## Decision logging
+
+Set `ADAPTIPC_DECISION_LOG=path` to dump a CSV of the last 512 routing
+decisions (payload, occupancy, per-transport costs, queue wait,
+switch/setup/health/latency penalties, final scores, selected route,
+reason). Disabled by default; zero cost when disabled.
+
+## Experiments
+
+```sh
+cc -std=c11 -O3 -Wall -Wextra -pthread -Iinclude \
+   benchmarks/adaptive_ablation.c src/*.c -o /tmp/abl
+/tmp/abl --out experiments/raw          # runs experiments A-G
+python3 scripts/summarize_results.py    # -> experiments/summaries/
+python3 scripts/generate_figures.py     # -> experiments/figures/
+```
+
+Raw CSVs carry platform/compiler/seed metadata; every experiment uses
+the identical workload across policies. Shortfalls (e.g., UDS datagram
+receiver-queue overflow under bulk) are recorded as `dropped=N` in the
+notes column and never silently dropped or fabricated.
+
+## Known limitations
+
+* macOS shm_open(O_TRUNC) returns EINVAL on existing objects; the ring
+  deliberately avoids O_TRUNC and re-initializes cursors instead.
+* io_uring support is compile-time optional on Linux and reported as
+  UNSUPPORTED elsewhere.
+* UDS SOCK_DGRAM drops datagrams silently when the receiver queue
+  overflows; pure-UDS baselines cap payload sweeps at 64 KB.
+* The cost model is linear in payload size; extreme bimodality within
+  one size class degrades the fit until recalibration.

@@ -344,13 +344,23 @@ adapt_route_t adapt_policy_decide(adapt_policy_mode_t policy,
             r == ADAPT_ROUTE_SHM && ewma_size >= ADAPT_TAU_HIGH) {
             const size_t occ = (size_t)rt->ewma_occ_bytes;
             const double q = adapt_rtctx_queue_wait_us(rt, payload, occ);
-            if (q > adapt_cost_uds(cfg, payload) &&
+            double hp = 0.0;
+            if (health && shm_mapped)
+                hp = cfg->health_penalty_us[health->state];
+            /* Escape only when the predicted wait (plus any health
+             * penalty) beats the whole UDS send cost PLUS the
+             * switching cost: transient backlog spikes must not pay
+             * the switch. */
+            if (q + hp > adapt_cost_uds(cfg, payload) +
+                             cfg->switch_cost_us &&
                 payload + 1 <= UDS_MAX_DGRAM) {
                 r = ADAPT_ROUTE_UDS;
                 d->selected = r;
-                snprintf_reason(d, "QUEUE_PRESSURE");
+                snprintf_reason(d, hp > 0 ? "HEALTH_ESCAPE"
+                                          : "QUEUE_PRESSURE");
             }
             d->queue_wait_shm_us = q;
+            d->health_penalty_us = hp;
         }
         d->score_uds = d->cost_uds = adapt_cost_uds(cfg, payload);
         d->score_shm = d->cost_shm = adapt_cost_shm(cfg, payload,
@@ -375,7 +385,9 @@ adapt_route_t adapt_policy_decide(adapt_policy_mode_t policy,
         adapt_route_t r;
         if (ewma_size >= ADAPT_TAU_HIGH) {
             r = ADAPT_ROUTE_SHM;
-            if (q_shm > adapt_cost_uds(cfg, payload) &&
+            /* Same switching-cost threshold as the cold-start path. */
+            if (q_shm > adapt_cost_uds(cfg, payload) +
+                        cfg->switch_cost_us &&
                 payload + 1 <= UDS_MAX_DGRAM)
                 r = ADAPT_ROUTE_UDS;
         } else if (ewma_size <= ADAPT_TAU_LOW) {

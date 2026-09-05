@@ -294,26 +294,32 @@ static int run_producer(const run_cfg_t *rc, const char *experiment,
                 memcpy(frame, &seq, 8);
                 uint64_t t = now_ns();
                 memcpy(frame + 8, &t, 8);
-                memcpy(frame + 16, &(uint64_t){512}, 8);
-                int r3 = adapt_send(P, frame, FRAME_HDR + 512);
+                memcpy(frame + 16, &(uint64_t){3072}, 8);
+                int r3 = adapt_send(P, frame, FRAME_HDR + 3072);
                 if (r3 == 0) { seq++; sent++;
                     atomic_store(&g_ps->sent_count, sent); }
-                if (adapt_last_route(P) == ADAPT_ROUTE_UDS)
+                if (adapt_last_route(P) == ADAPT_ROUTE_UDS &&
+                    !atomic_load(&g_ps->first_uds_escape_ns))
                     atomic_store(&g_ps->first_uds_escape_ns, now_ns());
                 struct timespec ts = { 0, 5 * 1000000 };
                 nanosleep(&ts, NULL);
             }
-            /* recovery: resume the consumer, probe until SHM returns */
+            /* recovery: resume the consumer, probe with BULK-sized
+             * messages (keeps the EWMA above tau_high so the route
+             * decision reflects queue/health state, not size decay);
+             * record the first SHM-classified decision. */
             atomic_store(&g_ctl->consumer_pause, 0);
             for (int pr = 0; pr < 2000; pr++) {
                 memcpy(frame, &seq, 8);
                 uint64_t t = now_ns();
                 memcpy(frame + 8, &t, 8);
-                memcpy(frame + 16, &(uint64_t){512}, 8);
-                int r3 = adapt_send(P, frame, FRAME_HDR + 512);
-                if (r3 == 0) { seq++; sent++;
+                memcpy(frame + 16, &(uint64_t){8192}, 8);
+                int r3 = adapt_send(P, frame, FRAME_HDR + 8192);
+                if (r3 == 0 || r3 == -EAGAIN) {
+                    seq++; sent++;
                     atomic_store(&g_ps->sent_count, sent);
-                    if (adapt_last_route(P) == ADAPT_ROUTE_SHM) {
+                    if (r3 == 0 &&
+                        adapt_last_route(P) == ADAPT_ROUTE_SHM) {
                         atomic_store(&g_ps->recovery_ns, now_ns());
                         break;
                     }
@@ -620,17 +626,16 @@ static void run_one(const run_cfg_t *rc, const char *experiment,
                     continue;
                 }
                 if (atomic_load(&g_ctl->consumer_pause)) {
-                    /* slow drain, not a full stop: keeps the UDS socket
-                     * alive (datagrams would otherwise overflow and be
-                     * dropped) while the SHM ring backs up */
-                    int n = adapt_recv(cadapt, rx, sizeof(rx));
+                    /* slow drain of the UDS socket ONLY: keeps the
+                     * fallback path alive (datagrams would otherwise
+                     * overflow) while the SHM ring backs up */
+                    int n = adapt_recv_uds_timeout(cadapt, rx,
+                                                   sizeof(rx), 20);
                     if (n > 0) {
-                        if (r->n < LAT_CAP) r->lat[r->n] =
-                            now_ns() - 0; /* latencies unused in E */
                         r->n++; got++;
                         r->bytes += (uint64_t)n;
                     }
-                    struct timespec ts = { 0, 50 * 1000000 };
+                    struct timespec ts = { 0, 20 * 1000000 };
                     nanosleep(&ts, NULL);
                     continue;
                 }

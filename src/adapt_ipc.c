@@ -574,6 +574,24 @@ double adapt_ewma(const adapt_ctx_t *ctx)
     return ctx ? ctx->ewma_size : -1.0;
 }
 
+int adapt_recv_uds_timeout(adapt_ctx_t *ctx, void *buf, size_t max_size,
+                           int timeout_ms)
+{
+    if (!ctx || !buf || max_size == 0) return -EINVAL;
+    for (;;) {
+        unsigned char *ub = buf;
+        int n = uds_recv_timeout(ctx->uds, ub, max_size, timeout_ms);
+        if (n <= 0) return n;
+        if (ub[0] == ADAPT_WIRE_TAG_CTRL) {
+            handle_control(ctx, ub, n);
+            continue; /* control frames serviced, never delivered */
+        }
+        if (max_size < (size_t)n - 1) return -EMSGSIZE;
+        memmove(ub, ub + 1, (size_t)n - 1);
+        return n - 1;
+    }
+}
+
 size_t adapt_shm_used_bytes(const adapt_ctx_t *ctx)
 {
     return ctx ? shm_ring_used_bytes(ctx->ring) : 0;
