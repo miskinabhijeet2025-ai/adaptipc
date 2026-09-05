@@ -287,8 +287,16 @@ int adapt_init(adapt_role_t role, const adapt_config_t *cfg, adapt_ctx_t **out)
         /* Legacy eager path: both sides pass create=1 for idempotent
          * setup; header-init races are guarded by the `initialized`
          * flag inside shm_ring_create(). */
-        rc = shm_ring_create(ctx->cfg.shm_name, ctx->cfg.shm_capacity, 1,
-                             rrole, &ctx->ring);
+        /* Consumers attach without the header-init spin: in harnesses
+         * the consumer may initialize before the producer exists, and
+         * an uninitialized ring simply reads as empty (head == tail)
+         * until the producer's release-published init lands. */
+        if (rrole == SHM_RING_ROLE_CONSUMER)
+            rc = shm_ring_attach(ctx->cfg.shm_name, ctx->cfg.shm_capacity,
+                                 rrole, &ctx->ring);
+        else
+            rc = shm_ring_create(ctx->cfg.shm_name, ctx->cfg.shm_capacity,
+                                 1, rrole, &ctx->ring);
         if (rc != 0) goto fail;
         ctx->negot_done = 1;
         rc = grow_rxbuf(ctx, ctx->cfg.shm_capacity);
@@ -379,7 +387,9 @@ int adapt_send(adapt_ctx_t *ctx, const void *data, size_t size)
      * This is a per-message transport override ONLY -- it must not move
      * the sticky EWMA state (last_route), otherwise deadband oscillation
      * would masquerade as adaptation. */
-    if (route == ADAPT_ROUTE_UDS && size + 1 > UDS_MAX_DGRAM) {
+    if (route != ADAPT_ROUTE_SHM && size + 1 > UDS_MAX_DGRAM) {
+        /* route == UDS or an undecided NONE: anything that cannot fit
+         * a datagram must escalate to the ring. */
         route = ADAPT_ROUTE_SHM;
         if (ctx->stats_on) ctx->st.send_escalations++;
     }
@@ -567,6 +577,12 @@ double adapt_ewma(const adapt_ctx_t *ctx)
 size_t adapt_shm_used_bytes(const adapt_ctx_t *ctx)
 {
     return ctx ? shm_ring_used_bytes(ctx->ring) : 0;
+}
+
+size_t adapt_shm_capacity(const adapt_ctx_t *ctx)
+{
+    if (!ctx || !ctx->ring) return 0;
+    return shm_ring_used_bytes(ctx->ring) + shm_ring_free_bytes(ctx->ring);
 }
 
 adapt_policy_mode_t adapt_policy(const adapt_ctx_t *ctx)

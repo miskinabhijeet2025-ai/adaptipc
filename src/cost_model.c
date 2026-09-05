@@ -468,7 +468,15 @@ adapt_route_t adapt_policy_decide(adapt_policy_mode_t policy,
     adapt_route_t candidate =
         d->score_shm <= d->score_uds ? ADAPT_ROUTE_SHM : ADAPT_ROUTE_UDS;
 
-    /* Stability rule: switch only on a real improvement. */
+    /* Stability rule: switch only on a real improvement. The very first
+     * decision (current == NONE) is exempt: there is no route to
+     * protect, and leaving last_route at NONE would break the
+     * escalation guards downstream. */
+    if (current == ADAPT_ROUTE_NONE) {
+        d->selected = candidate;
+        snprintf_reason(d, "INITIAL_ROUTE");
+        return candidate;
+    }
     if (candidate != current) {
         const double cand = candidate == ADAPT_ROUTE_SHM
                                 ? d->score_shm : d->score_uds;

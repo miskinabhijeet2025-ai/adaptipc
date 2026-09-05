@@ -169,6 +169,9 @@ adapt_health_state_t adapt_shm_health(const adapt_ctx_t *ctx);
  * and drain state without touching the ring directly. */
 size_t adapt_shm_used_bytes(const adapt_ctx_t *ctx);
 
+/* Payload capacity of the mapped ring (0 when no ring is mapped). */
+size_t adapt_shm_capacity(const adapt_ctx_t *ctx);
+
 void adapt_shutdown(adapt_ctx_t *ctx);
 
 const char *adapt_route_name(adapt_route_t r);

@@ -167,25 +167,24 @@ static inline size_t round_pow2(size_t v)
 static int ring_map(const char *name, size_t capacity, int create,
                     shm_ring_role_t role, int wait_init, shm_ring_t **out)
 {
+    /* `create` is kept for API compatibility: both callers pass
+     * create=1 and share one idempotent open (see NOTE above). */
+    (void)create;
     if (!name || !out || name[0] != '/') return -EINVAL;
 
     size_t cap = round_pow2(capacity ? capacity : 65536);
     size_t map_size = sizeof(shm_ring_header) + SHM_HDR_PAD + cap;
 
+    /* NOTE: no O_TRUNC. macOS returns EINVAL for shm_open(O_TRUNC) on
+     * an existing object. A fresh logical ring does not need zeroed
+     * data: the producer (re)initializes head/tail/initialized with
+     * release semantics, and consumers only read bytes below head.
+     * Undersized objects are grown by the fstat/ftruncate block below
+     * (idempotently, by every attacher). */
     int oflags = O_RDWR | O_CREAT;
-    if (create && role == SHM_RING_ROLE_PRODUCER) oflags |= O_TRUNC;
 
     int fd = shm_open(name, oflags, 0600);
-    if (fd < 0) {
-        /* macOS quirk: shm_open(O_TRUNC) on an existing object can
-         * fail with EINVAL (e.g. after a crashed writer). Retry once
-         * without the stale object; the create path reinitializes it. */
-        if (errno == EINVAL && create) {
-            shm_unlink(name);
-            fd = shm_open(name, oflags, 0600);
-        }
-        if (fd < 0) return -errno;
-    }
+    if (fd < 0) return -errno;
 
     /* Only grow the object if needed: some platforms (e.g. macOS) return
      * EINVAL from ftruncate() when the size already matches. */
