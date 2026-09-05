@@ -1,0 +1,9 @@
+adapt    throughput=6963 MB/s  mean=5605.0 us  p50=3845.0 us  p99=76669.0 us  p99.9=138154.5 us  max=161018.0 us  msgs=20000
+uring    unsupported on this platform (io_uring requires Linux)
+uds      throughput=1229 MB/s  mean=94.3 us  p50=8.0 us  p99=1475.0 us  p99.9=3457.0 us  max=5668.0 us  msgs=20000
+iceoryx  throughput=6465 MB/s  mean=670.1 us  p50=247.5 us  p99=8978.2 us  p99.9=10556.0 us  max=12547.0 us  msgs=20000
+
+workload: 20000 messages, 2094676736 bytes total (bimodal: 55% control, 30% mid, 15% bulk)
+latency = end-to-end (send timestamp -> consumer receipt), including transport queueing
+watermark flow control: HW=80% LW=20% (futex/condvar park+wake)
+lazy SHM negotiation: deferred mapping, SHM_SETUP_REQ/ACK over UDS

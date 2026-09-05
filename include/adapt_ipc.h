@@ -55,6 +55,9 @@ typedef struct adapt_stats {
     uint64_t rx_uds_later;     /* uds, after >=1 timeout              */
     uint64_t poll_calls, poll_timeouts, poll_wait_ns;
     uint64_t recv_loop_iters; /* total ring-poll iterations          */
+    /* lazy endpoint negotiation */
+    uint64_t shm_setup_reqs, shm_setup_acks;
+    uint64_t negot_wait_ns;   /* time producer spent waiting for ACK */
 } adapt_stats_t;
 
 /* Copy this context's counters (zeros unless ADAPTIPC_STATS=1). */
@@ -74,13 +77,25 @@ typedef enum {
 typedef struct adapt_ctx adapt_ctx_t;
 
 typedef struct adapt_config {
-    const char *shm_name;      /* NULL -> ADAPT_SHM_NAME_DEFAULT */
+    const char *shm_name;      /* NULL -> ADAPT_SHM_NAME_DEFAULT (or a
+                                * generated name under lazy negotiation) */
     const char *local_sock;    /* this endpoint's UDS path  (required) */
     const char *peer_sock;     /* peer endpoint's UDS path  (required) */
     size_t      shm_capacity;  /* payload capacity bytes; 0 -> default 64 KiB */
+    /* When 0 (default), the producer blocks at the ring's high watermark
+     * (80% capacity, futex-parked) instead of returning -EAGAIN. Set to 1
+     * for the legacy never-blocks behavior. */
+    int         nonblocking_send;
 } adapt_config_t;
 
-/* Initialize both transports and reset EWMA state to 0. */
+/*
+ * Initialize the endpoint and reset EWMA state to 0. The UDS fallback is
+ * bound immediately; the SHM ring is NOT mapped here. Under lazy
+ * negotiation (default) the ring is created on demand the first time the
+ * EWMA classifier routes to SHM, via a SHM_SETUP_REQ/ACK handshake over
+ * the UDS control channel. Pass ADAPTIPC_EAGER_SHM=1 to restore eager
+ * mapping.
+ */
 int adapt_init(adapt_role_t role, const adapt_config_t *cfg, adapt_ctx_t **out);
 
 /*
@@ -98,6 +113,11 @@ int adapt_recv(adapt_ctx_t *ctx, void *buf, size_t max_size);
 /* Introspection for tests / instrumentation. */
 adapt_route_t  adapt_last_route(const adapt_ctx_t *ctx);
 double         adapt_ewma(const adapt_ctx_t *ctx);
+
+/* Bytes currently queued in the SHM ring (0 when no ring is mapped).
+ * Approximate lock-free snapshot; used by tests to observe backpressure
+ * and drain state without touching the ring directly. */
+size_t adapt_shm_used_bytes(const adapt_ctx_t *ctx);
 
 void adapt_shutdown(adapt_ctx_t *ctx);
 

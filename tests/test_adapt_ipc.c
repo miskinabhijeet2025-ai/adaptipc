@@ -10,12 +10,20 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/mman.h>
 
 int main(void)
 {
+    /* This test exercises router semantics with the legacy eager SHM
+     * mapping and a synchronous single-threaded send/recv ping-pong
+     * (the consumer is never inside adapt_recv() while the producer
+     * sends, so the asynchronous lazy handshake cannot complete here --
+     * it is covered by test_lazy_negotiation.c). */
+    setenv("ADAPTIPC_EAGER_SHM", "1", 1);
+
     /* Clean up any leftovers from a previously crashed run. */
     shm_unlink("/adaptipc_test_router");
     unlink("/tmp/adaptipc_test_a.sock");

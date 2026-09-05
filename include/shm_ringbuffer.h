@@ -25,6 +25,15 @@ typedef struct shm_ring shm_ring_t;
 /* Per-record on-wire framing inside the ring (little-endian u32 length). */
 #define SHM_RING_MSG_HDR_SIZE 4
 
+/*
+ * High/low watermark flow control. The producer blocks once ring usage
+ * reaches the high watermark (80% of capacity) and is woken by the
+ * consumer once usage drains below the low watermark (20%). The gap is
+ * the hysteresis band that prevents wake storms.
+ */
+#define SHM_HW_PCT 80u
+#define SHM_LW_PCT 20u
+
 typedef enum {
     SHM_RING_ROLE_PRODUCER = 0,
     SHM_RING_ROLE_CONSUMER = 1
@@ -42,6 +51,17 @@ typedef enum {
  * Returns 0 on success, -errno-style negative value on failure.
  */
 int shm_ring_create(const char *name, size_t capacity, int create,
+                    shm_ring_role_t role, shm_ring_t **out);
+
+/*
+ * Attach without waiting for the peer's header initialization (used by
+ * lazy negotiation, where the ACK must be sent before either side can
+ * touch the header). Producer role still initializes the header; consumer
+ * role returns immediately -- subsequent shm_ring_pop() calls simply
+ * observe an empty ring (head == tail == 0) until the producer's
+ * release-published init becomes visible.
+ */
+int shm_ring_attach(const char *name, size_t capacity,
                     shm_ring_role_t role, shm_ring_t **out);
 
 /* Producer: enqueue one record assembled from scattered segments.
@@ -66,6 +86,22 @@ int shm_ring_pop(shm_ring_t *rb, void *buf, size_t max_size);
 /* Non-blocking availability queries (approximate; lock-free snapshot). */
 size_t shm_ring_used_bytes(const shm_ring_t *rb);
 size_t shm_ring_free_bytes(const shm_ring_t *rb);
+
+/*
+ * Watermark flow control (producer side). Blocks the calling thread until
+ * ring usage drops below the high watermark, using a futex on Linux
+ * (FUTEX_WAIT on a shared atomic flag) or a process-shared mutex/condvar
+ * elsewhere. The consumer wakes it automatically from shm_ring_pop() once
+ * usage falls below the low watermark. Safe against lost wakeups: the
+ * flag is re-checked after being set, before sleeping.
+ * Returns 0 on success, negative errno otherwise.
+ */
+int shm_ring_wait_writable(shm_ring_t *rb);
+
+/* Blocking producer push: throttles at the high watermark instead of
+ * returning -EAGAIN. Never drops a message; returns 0 or negative errno. */
+int shm_ring_push_scatter_blocking(shm_ring_t *rb, const shm_segment_t *segs,
+                                   int nseg);
 
 /* Detach this process' mapping. If `unlink_obj` is nonzero, also remove the
  * shm object (call once, by whoever created it, after the peer detached). */

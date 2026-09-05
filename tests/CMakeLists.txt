@@ -14,3 +14,18 @@ target_link_libraries(benchmark_suite PRIVATE adaptipc)
 target_compile_options(benchmark_suite PRIVATE -O3)
 add_test(NAME benchmark_smoke
          COMMAND benchmark_suite --mode adapt --workload sweep --out smoke.csv)
+
+# High/low watermark flow control (futex park/wake, no loss, no deadlock)
+add_executable(test_flowcontrol test_flowcontrol.c)
+target_link_libraries(test_flowcontrol PRIVATE adaptipc)
+add_test(NAME flowcontrol COMMAND test_flowcontrol)
+
+# Lazy SHM endpoint negotiation over the UDS control channel
+add_executable(test_lazy_negotiation test_lazy_negotiation.c)
+target_link_libraries(test_lazy_negotiation PRIVATE adaptipc)
+add_test(NAME lazy_negotiation COMMAND test_lazy_negotiation)
+
+# Tail-latency gate: watermark-bounded backlog under backpressure
+add_executable(test_backpressure_latency test_backpressure_latency.c)
+target_link_libraries(test_backpressure_latency PRIVATE adaptipc)
+add_test(NAME backpressure_latency COMMAND test_backpressure_latency)

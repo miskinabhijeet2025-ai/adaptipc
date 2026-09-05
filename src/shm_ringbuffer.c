@@ -15,15 +15,19 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <sched.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <sys/mman.h>
 #include <sys/stat.h>
+
+#include "futex_compat.h"
 
 #define SHM_HDR_PAD    128u        /* header padding: avoids false sharing */
 #define SHM_RING_MAGIC 0x52494752u /* "RIGR" */
@@ -34,7 +38,115 @@ typedef struct shm_ring_header {
     uint64_t         capacity;    /* payload capacity in bytes        */
     uint32_t         magic;
     _Atomic uint32_t initialized; /* set with release once header ready */
+    /* High/low watermark flow control. On Linux `flow_flag` is a
+     * shared-memory futex word; on Apple/other Unix `flow` embeds the
+     * same flag plus a process-shared mutex/condvar backing it. */
+#if defined(__linux__)
+    _Atomic int      flow_flag;
+#else
+    futex_compat_emu_t flow;
+#endif
 } shm_ring_header;
+
+#if defined(__linux__)
+static inline _Atomic int *flow_word(shm_ring_header *h)
+{
+    return &h->flow_flag;
+}
+static inline int flow_wait(shm_ring_header *h, int expected)
+{
+    long r = futex_compat_wait(flow_word(h), expected);
+    if (r == 0) return 0;
+    return (errno == EAGAIN) ? -EAGAIN : -errno;
+}
+static inline int flow_wake(shm_ring_header *h)
+{
+    if (!atomic_exchange_explicit(flow_word(h), 0, memory_order_acq_rel))
+        return 0; /* nobody parked on it */
+    futex_compat_wake(flow_word(h), INT_MAX);
+    return 0;
+}
+#else
+static inline _Atomic int *flow_word(shm_ring_header *h)
+{
+    return &h->flow.flag;
+}
+static inline int flow_wait(shm_ring_header *h, int expected)
+{
+    return futex_compat_emu_wait(&h->flow, expected);
+}
+static inline int flow_wake(shm_ring_header *h)
+{
+    return futex_compat_emu_wake(&h->flow);
+}
+
+/*
+ * Emulated futex on Apple/other Unix: a process-shared mutex/condvar
+ * embedded (in shared memory) next to the flag it backs. The flag check
+ * is repeated under the mutex before sleeping, which closes the classic
+ * lost-wakeup window between the waker's exchange() and its broadcast.
+ */
+int futex_compat_emu_init(futex_compat_emu_t *f)
+{
+    pthread_mutexattr_t ma;
+    pthread_condattr_t  ca;
+    int rc;
+    if ((rc = pthread_mutexattr_init(&ma)) != 0) return -rc;
+    if ((rc = pthread_mutexattr_setpshared(&ma, PTHREAD_PROCESS_SHARED)) != 0) {
+        pthread_mutexattr_destroy(&ma);
+        return -rc;
+    }
+    rc = pthread_mutex_init(&f->mtx, &ma);
+    pthread_mutexattr_destroy(&ma);
+    if (rc != 0) return -rc;
+
+    if ((rc = pthread_condattr_init(&ca)) != 0) {
+        pthread_mutex_destroy(&f->mtx);
+        return -rc;
+    }
+    if ((rc = pthread_condattr_setpshared(&ca, PTHREAD_PROCESS_SHARED)) != 0) {
+        pthread_condattr_destroy(&ca);
+        pthread_mutex_destroy(&f->mtx);
+        return -rc;
+    }
+    rc = pthread_cond_init(&f->cnd, &ca);
+    pthread_condattr_destroy(&ca);
+    if (rc != 0) {
+        pthread_mutex_destroy(&f->mtx);
+        return -rc;
+    }
+    atomic_store_explicit(&f->flag, 0, memory_order_relaxed);
+    atomic_store_explicit(&f->ready, 1, memory_order_release);
+    return 0;
+}
+
+int futex_compat_emu_wait(futex_compat_emu_t *f, int expected)
+{
+    if (!atomic_load_explicit(&f->ready, memory_order_acquire))
+        return -EINVAL; /* not initialized yet: caller must not park */
+    if (pthread_mutex_lock(&f->mtx) != 0) return -EINVAL;
+    int rc = 0;
+    if (atomic_load_explicit(&f->flag, memory_order_acquire) != expected) {
+        rc = -EAGAIN; /* flag changed before we slept: recheck condition */
+    } else if (pthread_cond_wait(&f->cnd, &f->mtx) != 0) {
+        rc = -EINVAL;
+    }
+    pthread_mutex_unlock(&f->mtx);
+    return rc;
+}
+
+int futex_compat_emu_wake(futex_compat_emu_t *f)
+{
+    if (!atomic_load_explicit(&f->ready, memory_order_acquire))
+        return 0; /* producer never initialized the parking structures */
+    if (!atomic_exchange_explicit(&f->flag, 0, memory_order_acq_rel))
+        return 0; /* nobody parked on it */
+    if (pthread_mutex_lock(&f->mtx) != 0) return -EINVAL;
+    pthread_cond_broadcast(&f->cnd);
+    pthread_mutex_unlock(&f->mtx);
+    return 0;
+}
+#endif
 
 struct shm_ring {
     shm_ring_header *hdr;
@@ -51,8 +163,8 @@ static inline size_t round_pow2(size_t v)
     return p;
 }
 
-int shm_ring_create(const char *name, size_t capacity, int create,
-                    shm_ring_role_t role, shm_ring_t **out)
+static int ring_map(const char *name, size_t capacity, int create,
+                    shm_ring_role_t role, int wait_init, shm_ring_t **out)
 {
     if (!name || !out || name[0] != '/') return -EINVAL;
 
@@ -103,17 +215,41 @@ int shm_ring_create(const char *name, size_t capacity, int create,
     if (role == SHM_RING_ROLE_PRODUCER) {
         atomic_store_explicit(&rb->hdr->head, 0, memory_order_relaxed);
         atomic_store_explicit(&rb->hdr->tail, 0, memory_order_relaxed);
+#if defined(__linux__)
+        atomic_store_explicit(&rb->hdr->flow_flag, 0, memory_order_relaxed);
+#else
+        int fr = futex_compat_emu_init(&rb->hdr->flow);
+        if (fr != 0) {
+            munmap(base, map_size);
+            close(fd);
+            free(rb);
+            return fr;
+        }
+#endif
         rb->hdr->capacity = cap;
         rb->hdr->magic = SHM_RING_MAGIC;
         atomic_store_explicit(&rb->hdr->initialized, 1, memory_order_release);
     } else {
-        while (!atomic_load_explicit(&rb->hdr->initialized,
-                                     memory_order_acquire))
-            sched_yield(); /* wait for producer-side header init */
+        if (wait_init)
+            while (!atomic_load_explicit(&rb->hdr->initialized,
+                                         memory_order_acquire))
+                sched_yield(); /* wait for producer-side header init */
     }
 
     *out = rb;
     return 0;
+}
+
+int shm_ring_create(const char *name, size_t capacity, int create,
+                    shm_ring_role_t role, shm_ring_t **out)
+{
+    return ring_map(name, capacity, create, role, 1, out);
+}
+
+int shm_ring_attach(const char *name, size_t capacity,
+                    shm_ring_role_t role, shm_ring_t **out)
+{
+    return ring_map(name, capacity, 0, role, 0, out);
 }
 
 /*
@@ -273,7 +409,74 @@ int shm_ring_pop(shm_ring_t *rb, void *buf, size_t max_size)
         atomic_store_explicit(&rb->hdr->tail,
                               tail + (uint64_t)len32 + SHM_RING_MSG_HDR_SIZE,
                               memory_order_release);
+        /* Watermark wake: once drained below the low watermark, release
+         * a parked producer (if any). exchange(flag,0)==1 means a producer
+         * had committed to sleep, so no wakeup can be lost. */
+        if (head - (tail + (uint64_t)len32 + SHM_RING_MSG_HDR_SIZE) <
+            (uint64_t)rb->capacity * SHM_LW_PCT / 100u)
+            flow_wake(rb->hdr);
         return (int)len32;
+    }
+}
+
+/*
+ * Producer-side watermark throttle. Blocks until used < HW_PCT% of
+ * capacity. Lost-wakeup-safe: the flow flag is stored with release, the
+ * usage condition re-checked with acquire, and the consumer only clears
+ * the flag via an exchange before issuing the wake.
+ */
+int shm_ring_wait_writable(shm_ring_t *rb)
+{
+    if (!rb) return -EINVAL;
+
+    const uint64_t hw_bytes =
+        (uint64_t)rb->capacity * SHM_HW_PCT / 100u;
+
+    for (;;) {
+        const uint64_t head = atomic_load_explicit(&rb->hdr->head,
+                                                   memory_order_relaxed);
+        const uint64_t tail = atomic_load_explicit(&rb->hdr->tail,
+                                                   memory_order_acquire);
+        if (head - tail < hw_bytes) return 0;
+
+        atomic_store_explicit(flow_word(rb->hdr), 1, memory_order_release);
+
+        /* Re-check after arming the flag: the consumer may have drained
+         * between our condition test and the store -- its exchange() would
+         * have missed us, so we must not sleep now. */
+        const uint64_t tail2 = atomic_load_explicit(&rb->hdr->tail,
+                                                    memory_order_acquire);
+        if (head - tail2 < hw_bytes) {
+            atomic_store_explicit(flow_word(rb->hdr), 0,
+                                  memory_order_release);
+            return 0;
+        }
+
+        int rc = flow_wait(rb->hdr, 1);
+        if (rc == -EAGAIN) continue; /* flag changed; recheck condition */
+        if (rc != 0) return rc;      /* real error */
+        /* woken: loop and re-verify the condition */
+    }
+}
+
+int shm_ring_push_scatter_blocking(shm_ring_t *rb, const shm_segment_t *segs,
+                                   int nseg)
+{
+    if (!rb) return -EINVAL;
+    /* Throttle BEFORE attempting the push: parking only after a 100%
+     * full-EAGAIN would let usage climb to capacity every cycle and
+     * defeat the high-watermark queueing bound. */
+    int rc = shm_ring_wait_writable(rb);
+    if (rc != 0 && rc != -EINVAL) return rc;
+    for (;;) {
+        rc = shm_ring_push_scatter(rb, segs, nseg);
+        if (rc != -EAGAIN) return rc;
+        /* Full anyway (record vs. watermark rounding): park until the
+         * consumer drains below HW, then retry. Yield prevents a spin
+         * if a single record cannot fit even below HW. */
+        rc = shm_ring_wait_writable(rb);
+        if (rc != 0) return rc;
+        sched_yield();
     }
 }
 

@@ -76,6 +76,23 @@ for mode in uds shm adapt; do
     run_case "$mode" thrash results_bimodal.csv --iters "$BIMODAL_ITERS"
 done
 
+# --- Production comparison: AdaptIPC vs UDS vs Iceoryx-style SHM vs io_uring
+# (io_uring builds only on Linux with liburing; reported as unsupported
+#  elsewhere. CDF data: benchmarks/latency_cdf_<transport>.txt) -------
+echo "=== production comparison -> benchmarks/results_summary.txt ==="
+PCMP="$BUILD_DIR/bin/production_comparison"
+URING_FLAG=""
+if [[ "$(uname)" == "Linux" ]] && pkg-config --exists liburing 2>/dev/null; then
+    URING_FLAG="-DADAPTIPC_HAVE_IO_URING=1"
+    echo "io_uring: enabled (liburing found)"
+else
+    URING_FLAG="-DADAPTIPC_HAVE_IO_URING=0"
+    echo "io_uring: not available on this platform ($(uname))"
+fi
+"$CC" $CFLAGS $URING_FLAG -pthread "$ROOT/benchmarks/production_comparison.c" \
+    "$BUILD_DIR/libadaptipc.a" -o "$PCMP" -lpthread
+"$PCMP" --iters "${PCMP_ITERS:-20000}" --out "$BENCH_DIR" | tee -a "$SUMMARY"
+
 echo ""
 echo "== Done. Raw CSVs in $BENCH_DIR/, log in $SUMMARY =="
 echo "Plot with: python3 scripts/plot_results.py"
