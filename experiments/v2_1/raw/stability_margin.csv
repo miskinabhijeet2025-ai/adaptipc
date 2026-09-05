@@ -1,0 +1,8 @@
+# git_commit=unknown
+H_us,messages,total_switches,genuine_escapes,noise_flaps,latency_us_per_msg,throughput_mbps
+0.00,2000,0,0,0,1.406,5903.8
+2.00,2000,0,0,0,1.318,6298.0
+5.00,2000,0,0,0,1.079,7689.5
+10.00,2000,0,0,0,1.105,7515.4
+25.00,2000,0,0,0,1.604,5175.1
+50.00,2000,0,0,0,0.926,8964.1

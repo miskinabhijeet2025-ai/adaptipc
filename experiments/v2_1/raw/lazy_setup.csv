@@ -1,0 +1,8 @@
+# git_commit=unknown
+workload,eager,heavy,init_time_us,first_msg_us,setup_reqs,setup_acks,steady_throughput_mbps
+uds_only,1,0,1816000.0,20000.0,0,0,13.0
+uds_only,0,0,397000.0,27000.0,0,0,108.2
+mixed,1,1,172000.0,8000.0,0,0,6460.8
+mixed,0,1,152000.0,7000.0,0,0,9138.0
+shm_heavy,1,2,234000.0,8000.0,0,0,8016.9
+shm_heavy,0,2,170000.0,6000.0,0,0,8942.2

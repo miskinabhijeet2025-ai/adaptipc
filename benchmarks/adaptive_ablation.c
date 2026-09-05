@@ -213,17 +213,20 @@ static int run_producer(const run_cfg_t *rc, const char *experiment,
             }
         }
     }
-    /* -------- Experiment B: queue pressure (2 KB: fits UDS so
-     * queue-aware policies can escape a backlogged ring) -------- */
+    /* -------- Experiment B: queue pressure (16 KB: EWMA classifies
+     * SHM, backlog builds, occupancy is measurable; v2.0 used 2 KB
+     * which kept the EWMA below tau_high so every policy stayed on
+     * UDS and occupancy was legitimately zero -- a workload-design
+     * bug, now fixed) -------- */
     else if (!strcmp(experiment, "queue_pressure")) {
         const unsigned K = 6000;
         for (unsigned i = 0; i < K; i++) {
             memcpy(frame, &seq, 8);
             uint64_t t = now_ns();
             memcpy(frame + 8, &t, 8);
-            memcpy(frame + 16, &(uint64_t){2048}, 8);
+            memcpy(frame + 16, &(uint64_t){16384}, 8);
             if (rc->kind == TR_ADAPT) {
-                if (prod_send(P, frame, FRAME_HDR + 2048)) return 1;
+                if (prod_send(P, frame, FRAME_HDR + 16384)) return 1;
                 ps_track_occ(adapt_shm_used_bytes(P));
             }
             seq++;
@@ -800,7 +803,7 @@ int uds_prod_run(uds_endpoint_t *u, const char *experiment,
             static const size_t sizes[] = { 64, 128, 256, 512, 1024,
                 2048, 4096, 8192, 16384, 32768 };
             sz = sizes[(i / 1500u) % 10];
-        } else if (!strcmp(experiment, "queue_pressure")) sz = 2048;
+        } else if (!strcmp(experiment, "queue_pressure")) sz = 16384;
         else if (!strcmp(experiment, "burst_workload")) sz = 2048;
         else if (!strcmp(experiment, "qos")) {
             unsigned s2 = (unsigned)(i * 2654435761u);
@@ -834,7 +837,7 @@ int shm_prod_run(shm_ring_t *ring, const char *experiment,
             static const size_t sizes[] = { 64, 128, 256, 512, 1024,
                 2048, 4096, 8192, 16384, 32768, 65536, 262144, 1048576 };
             sz = sizes[(i / 1500u) % 13];
-        } else if (!strcmp(experiment, "queue_pressure")) sz = 2048;
+        } else if (!strcmp(experiment, "queue_pressure")) sz = 16384;
         else if (!strcmp(experiment, "burst_workload")) sz = 2048;
         else if (!strcmp(experiment, "qos")) {
             unsigned s2 = (unsigned)(i * 2654435761u);

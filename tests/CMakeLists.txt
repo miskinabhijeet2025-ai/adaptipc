@@ -39,3 +39,16 @@ add_test(NAME cost_model COMMAND test_cost_model)
 add_executable(test_policy_modes test_policy_modes.c)
 target_link_libraries(test_policy_modes PRIVATE adaptipc)
 add_test(NAME policy_modes COMMAND test_policy_modes)
+
+# v2.1: decision-log validation + route-transition accounting
+add_executable(test_decision_log_consistency test_decision_log_consistency.c)
+target_link_libraries(test_decision_log_consistency PRIVATE adaptipc)
+add_test(NAME decision_log_consistency COMMAND test_decision_log_consistency)
+
+add_executable(test_route_transition_accounting test_route_transition_accounting.c)
+target_link_libraries(test_route_transition_accounting PRIVATE adaptipc)
+add_test(NAME route_transition_accounting COMMAND test_route_transition_accounting)
+
+add_executable(test_queue_occupancy_instrumentation test_queue_occupancy_instrumentation.c)
+target_link_libraries(test_queue_occupancy_instrumentation PRIVATE adaptipc)
+add_test(NAME queue_occupancy_instrumentation COMMAND test_queue_occupancy_instrumentation)

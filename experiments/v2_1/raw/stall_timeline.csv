@@ -1,0 +1,15 @@
+# git_commit=unknown
+t_ms,event,payload,route,ring_used,predicted_wait_us
+0.0,normal,8192,UDS,8197,163.9
+0.1,normal,8192,SHM,180334,19.5
+0.1,normal,8192,SHM,65576,5.5
+0.1,normal,8192,SHM,393456,33.0
+0.2,normal,8192,SHM,728893,61.1
+0.2,normal,8192,SHM,1048576,87.9
+0.2,normal,8192,SHM,1048576,116.8
+0.2,normal,8192,SHM,1048576,125.5
+0.2,normal,8192,SHM,1048576,127.5
+0.2,normal,8192,SHM,1048576,127.9
+0.2,stall,3072,UDS,1048576,128.0
+1.7,recovery,8192,SHM,1048576,160.0
+2.9,summary,0,0.0,2.7,0.0

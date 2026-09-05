@@ -179,6 +179,11 @@ size_t adapt_shm_used_bytes(const adapt_ctx_t *ctx);
 /* Payload capacity of the mapped ring (0 when no ring is mapped). */
 size_t adapt_shm_capacity(const adapt_ctx_t *ctx);
 
+/* Diagnostic: the queue-wait prediction the policy would currently
+ * produce for `incoming` bytes (0 when no ring is mapped). */
+double adapt_debug_predicted_wait_us(const adapt_ctx_t *ctx,
+                                     size_t incoming);
+
 void adapt_shutdown(adapt_ctx_t *ctx);
 
 const char *adapt_route_name(adapt_route_t r);

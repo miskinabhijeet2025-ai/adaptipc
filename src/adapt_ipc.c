@@ -603,6 +603,14 @@ size_t adapt_shm_capacity(const adapt_ctx_t *ctx)
     return shm_ring_used_bytes(ctx->ring) + shm_ring_free_bytes(ctx->ring);
 }
 
+double adapt_debug_predicted_wait_us(const adapt_ctx_t *ctx,
+                                     size_t incoming)
+{
+    if (!ctx || !ctx->ring) return 0.0;
+    return adapt_rtctx_queue_wait_us(&ctx->rt, incoming,
+                                     shm_ring_used_bytes(ctx->ring));
+}
+
 adapt_policy_mode_t adapt_policy(const adapt_ctx_t *ctx)
 {
     return ctx ? ctx->policy : ADAPT_POLICY_DEFAULT;

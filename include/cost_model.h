@@ -86,6 +86,10 @@ double adapt_rtctx_queue_wait_us(const adapt_rtctx_t *rc, size_t incoming,
  * notification floor (see cost model). */
 #define ADAPT_ACTIVE_WINDOW_NS (20ull * 1000 * 1000)
 
+/* Drain estimate staleness window: a positive-drain observation older
+ * than this no longer counts as reliable (v2.1). */
+#define ADAPT_DRAIN_STALE_NS (5ull * 1000 * 1000)
+
 /* ------------------------------------------------------------------ */
 /* Transport health (Phase 4)                                           */
 /* ------------------------------------------------------------------ */

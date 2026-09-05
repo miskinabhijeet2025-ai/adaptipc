@@ -24,6 +24,7 @@
 
 #include <limits.h>
 #include <math.h>
+#include <time.h>
 #include <string.h>
 
 void adapt_rtctx_init(adapt_rtctx_t *rc, unsigned min_samples)
@@ -84,7 +85,22 @@ double adapt_rtctx_queue_wait_us(const adapt_rtctx_t *rc, size_t incoming,
     const double bytes = (double)occ_bytes;
     if (bytes <= 0.0) return 0.0;          /* empty queue: no wait */
 
-    int reliable = rc && rc->samples >= rc->min_samples && rc->drain_valid;
+    /* Staleness guard: a drain estimate from a consumer that has since
+     * stopped draining is worse than no estimate (v2.1 finding -- the
+     * EWMA otherwise retains a stale fast rate and underestimates the
+     * wait by orders of magnitude). Treat the estimate as reliable
+     * only if a positive drain was observed within the stale window. */
+    int fresh = 0;
+    if (rc && rc->last_drain_ns) {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        uint64_t now = (uint64_t)ts.tv_sec * 1000000000ull +
+                       (uint64_t)ts.tv_nsec;
+        fresh = now >= rc->last_drain_ns &&
+                now - rc->last_drain_ns < ADAPT_DRAIN_STALE_NS;
+    }
+    int reliable = rc && rc->samples >= rc->min_samples &&
+                   rc->drain_valid && fresh;
     double rate = reliable ? rc->ewma_drain_bps : 0.0;
     if (rate <= ADAPT_DRAIN_FLOOR_BPS)
         rate = ADAPT_DRAIN_FLOOR_BPS;      /* conservative fallback */

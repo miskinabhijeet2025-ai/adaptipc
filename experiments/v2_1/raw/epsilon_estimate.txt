@@ -1,0 +1,5 @@
+epsilon_steady_us=0.00
+epsilon_transient_us=0.00
+epsilon_used_us=0.00
+n=400
+method=max(steady, transient) spread of |score_uds - score_shm|; steady = late-quarter range, transient = (p95-p5) over the full convergence run

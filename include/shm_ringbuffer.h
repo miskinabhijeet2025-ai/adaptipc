@@ -31,8 +31,14 @@ typedef struct shm_ring shm_ring_t;
  * consumer once usage drains below the low watermark (20%). The gap is
  * the hysteresis band that prevents wake storms.
  */
+/* Overridable at compile time (-DSHM_HW_PCT=70 -DSHM_LW_PCT=20) for
+ * watermark-sensitivity experiments. */
+#ifndef SHM_HW_PCT
 #define SHM_HW_PCT 80u
+#endif
+#ifndef SHM_LW_PCT
 #define SHM_LW_PCT 20u
+#endif
 
 typedef enum {
     SHM_RING_ROLE_PRODUCER = 0,

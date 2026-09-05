@@ -1,0 +1,7 @@
+adapt_ipc: PASS
+shm_ringbuffer: PASS
+flowcontrol: PASS
+lazy_negotiation: PASS
+backpressure_latency: PASS
+cost_model: PASS
+policy_modes: PASS

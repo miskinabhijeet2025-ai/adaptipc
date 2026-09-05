@@ -1,0 +1,6 @@
+hw=80 lw=20 tp=4774 MB/s parks=2 p99=60.0 us
+hw=70 lw=20 tp=4102 MB/s parks=0 p99=3.0 us
+hw=60 lw=20 tp=6088 MB/s parks=4 p99=37.0 us
+hw=90 lw=20 tp=5129 MB/s parks=2 p99=62.0 us
+hw=80 lw=30 tp=3080 MB/s parks=3 p99=48.0 us
+hw=90 lw=30 tp=2647 MB/s parks=0 p99=31.0 us
