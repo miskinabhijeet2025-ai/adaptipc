@@ -76,7 +76,8 @@ void adapt_rtctx_sample(adapt_rtctx_t *rc, size_t payload,
 double adapt_rtctx_queue_wait_us(const adapt_rtctx_t *rc, size_t incoming,
                                  size_t occ_bytes)
 {
-    const double bytes = (double)occ_bytes + (double)incoming;
+    (void)incoming; /* wait is determined by bytes ahead, not own size */
+    const double bytes = (double)occ_bytes;
     if (bytes <= 0.0) return 0.0;          /* empty queue: no wait */
 
     int reliable = rc && rc->samples >= rc->min_samples && rc->drain_valid;

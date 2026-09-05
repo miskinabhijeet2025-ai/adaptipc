@@ -176,7 +176,16 @@ static int ring_map(const char *name, size_t capacity, int create,
     if (create && role == SHM_RING_ROLE_PRODUCER) oflags |= O_TRUNC;
 
     int fd = shm_open(name, oflags, 0600);
-    if (fd < 0) return -errno;
+    if (fd < 0) {
+        /* macOS quirk: shm_open(O_TRUNC) on an existing object can
+         * fail with EINVAL (e.g. after a crashed writer). Retry once
+         * without the stale object; the create path reinitializes it. */
+        if (errno == EINVAL && create) {
+            shm_unlink(name);
+            fd = shm_open(name, oflags, 0600);
+        }
+        if (fd < 0) return -errno;
+    }
 
     /* Only grow the object if needed: some platforms (e.g. macOS) return
      * EINVAL from ftruncate() when the size already matches. */

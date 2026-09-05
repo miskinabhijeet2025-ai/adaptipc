@@ -325,6 +325,22 @@ int adapt_send(adapt_ctx_t *ctx, const void *data, size_t size)
      * (bulk retries inflate it to S_t; control retries decay it through
      * the deadband), flipping routes under load -- a real bug observed in
      * measurement. */
+    /* Context sampling + health monitoring run on EVERY attempt,
+     * including -EAGAIN retries: backpressure is exactly when the
+     * health monitor and rate estimator must keep observing. */
+    const uint64_t now = stats_now_ns();
+    const size_t occ = shm_ring_used_bytes(ctx->ring);
+    adapt_rtctx_sample(&ctx->rt, size, occ, now, ctx->alpha);
+    if (ctx->ring) {
+        const size_t cap = occ + shm_ring_free_bytes(ctx->ring);
+        adapt_health_update_shm(&ctx->health, occ, cap,
+                                ctx->rt.drain_valid,
+                                ctx->rt.ewma_arrival_bps,
+                                ctx->rt.ewma_drain_bps);
+        if (ctx->stats_on)
+            ctx->st.health_transitions = ctx->health.transitions;
+    }
+
     adapt_route_t route;
     if (ctx->retry_pending && ctx->pending_size == size &&
         ctx->pending_route != ADAPT_ROUTE_NONE) {
@@ -333,21 +349,6 @@ int adapt_send(adapt_ctx_t *ctx, const void *data, size_t size)
         STATS_T0(ctx);
         ctx->ewma_size = ewma_update(ctx->ewma_size, ctx->alpha, size);
         STATS_ACC(router_ns);
-
-        /* Context sampling + policy decision (producer-side, single
-         * thread: no synchronization needed on the estimator state). */
-        const uint64_t now = stats_now_ns();
-        const size_t occ = shm_ring_used_bytes(ctx->ring);
-        adapt_rtctx_sample(&ctx->rt, size, occ, now, ctx->alpha);
-        if (ctx->ring) {
-            const size_t cap = occ + shm_ring_free_bytes(ctx->ring);
-            adapt_health_update_shm(&ctx->health, occ, cap,
-                                    ctx->rt.drain_valid,
-                                    ctx->rt.ewma_arrival_bps,
-                                    ctx->rt.ewma_drain_bps);
-            if (ctx->stats_on)
-                ctx->st.health_transitions = ctx->health.transitions;
-        }
 
         adapt_decision_t d;
         route = adapt_policy_decide(

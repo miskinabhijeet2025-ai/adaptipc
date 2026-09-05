@@ -308,8 +308,8 @@ adapt_route_t adapt_policy_decide(adapt_policy_mode_t policy,
                                   adapt_decision_t *d)
 {
     adapt_decision_t local;
-    if (!d) { d = &local; memset(d, 0, sizeof(*d)); }
-    memset(d->reason, 0, sizeof(d->reason));
+    if (!d) d = &local;
+    memset(d, 0, sizeof(*d));
     d->ts_ns = now_ns;
     d->payload = payload;
     d->current = current;
@@ -329,7 +329,9 @@ adapt_route_t adapt_policy_decide(adapt_policy_mode_t policy,
          (learn->n[0] < cfg->learn_min_samples ||
           learn->n[2] < cfg->learn_min_samples))) {
         /* Original validated policy; also the cold-start fallback of
-         * FULL_ADAPTIVE (safe defaults during learning). */
+         * FULL_ADAPTIVE (safe defaults during learning). Backlog
+         * safety needs no learned costs, so the queue-pressure escape
+         * applies here too once the runtime context has samples. */
         adapt_route_t r;
         if (ewma_size >= ADAPT_TAU_HIGH) r = ADAPT_ROUTE_SHM;
         else if (ewma_size <= ADAPT_TAU_LOW) r = ADAPT_ROUTE_UDS;
@@ -338,9 +340,22 @@ adapt_route_t adapt_policy_decide(adapt_policy_mode_t policy,
         d->selected = r;
         snprintf_reason(d, policy == ADAPT_POLICY_SIZE_HYSTERESIS
                                ? "SIZE_HYSTERESIS" : "COLD_START");
+        if (policy == ADAPT_POLICY_FULL_ADAPTIVE && rt &&
+            r == ADAPT_ROUTE_SHM && ewma_size >= ADAPT_TAU_HIGH) {
+            const size_t occ = (size_t)rt->ewma_occ_bytes;
+            const double q = adapt_rtctx_queue_wait_us(rt, payload, occ);
+            if (q > adapt_cost_uds(cfg, payload) &&
+                payload + 1 <= UDS_MAX_DGRAM) {
+                r = ADAPT_ROUTE_UDS;
+                d->selected = r;
+                snprintf_reason(d, "QUEUE_PRESSURE");
+            }
+            d->queue_wait_shm_us = q;
+        }
         d->score_uds = d->cost_uds = adapt_cost_uds(cfg, payload);
         d->score_shm = d->cost_shm = adapt_cost_shm(cfg, payload,
-                                                    0, 0, shm_mapped);
+                                                    d->queue_wait_shm_us,
+                                                    0, shm_mapped);
         return r;
     }
 
