@@ -98,6 +98,10 @@ size_t shm_ring_free_bytes(const shm_ring_t *rb);
  */
 int shm_ring_wait_writable(shm_ring_t *rb);
 
+/* Number of times the producer parked at the high watermark on this
+ * handle (producer process only). Backpressure-event metric. */
+uint64_t shm_ring_park_count(const shm_ring_t *rb);
+
 /* Blocking producer push: throttles at the high watermark instead of
  * returning -EAGAIN. Never drops a message; returns 0 or negative errno. */
 int shm_ring_push_scatter_blocking(shm_ring_t *rb, const shm_segment_t *segs,

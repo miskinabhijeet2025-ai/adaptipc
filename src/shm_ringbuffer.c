@@ -35,6 +35,7 @@
 typedef struct shm_ring_header {
     _Atomic uint64_t head;        /* bytes enqueued (producer cursor) */
     _Atomic uint64_t tail;        /* bytes dequeued (consumer cursor) */
+    _Atomic uint64_t parks;       /* producer park count (watermark)  */
     uint64_t         capacity;    /* payload capacity in bytes        */
     uint32_t         magic;
     _Atomic uint32_t initialized; /* set with release once header ready */
@@ -215,6 +216,7 @@ static int ring_map(const char *name, size_t capacity, int create,
     if (role == SHM_RING_ROLE_PRODUCER) {
         atomic_store_explicit(&rb->hdr->head, 0, memory_order_relaxed);
         atomic_store_explicit(&rb->hdr->tail, 0, memory_order_relaxed);
+        atomic_store_explicit(&rb->hdr->parks, 0, memory_order_relaxed);
 #if defined(__linux__)
         atomic_store_explicit(&rb->hdr->flow_flag, 0, memory_order_relaxed);
 #else
@@ -452,6 +454,8 @@ int shm_ring_wait_writable(shm_ring_t *rb)
             return 0;
         }
 
+        atomic_fetch_add_explicit(&rb->hdr->parks, 1,
+                                  memory_order_relaxed);
         int rc = flow_wait(rb->hdr, 1);
         if (rc == -EAGAIN) continue; /* flag changed; recheck condition */
         if (rc != 0) return rc;      /* real error */
@@ -488,6 +492,12 @@ size_t shm_ring_used_bytes(const shm_ring_t *rb)
     const uint64_t t = atomic_load_explicit(&rb->hdr->tail,
                                             memory_order_acquire);
     return (size_t)(h - t);
+}
+
+uint64_t shm_ring_park_count(const shm_ring_t *rb)
+{
+    if (!rb) return 0;
+    return atomic_load_explicit(&rb->hdr->parks, memory_order_relaxed);
 }
 
 size_t shm_ring_free_bytes(const shm_ring_t *rb)

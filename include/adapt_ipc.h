@@ -58,6 +58,11 @@ typedef struct adapt_stats {
     /* lazy endpoint negotiation */
     uint64_t shm_setup_reqs, shm_setup_acks;
     uint64_t negot_wait_ns;   /* time producer spent waiting for ACK */
+    /* context-aware policy (all policies; zeros when not applicable) */
+    uint64_t route_switches;        /* transport changes by the policy  */
+    uint64_t backpressure_parks;    /* producer parks at the HW         */
+    uint64_t health_transitions;    /* SHM health state changes         */
+    uint64_t decisions;             /* decisions evaluated              */
 } adapt_stats_t;
 
 /* Copy this context's counters (zeros unless ADAPTIPC_STATS=1). */
@@ -74,6 +79,37 @@ typedef enum {
     ADAPT_ROUTE_UDS  = 2
 } adapt_route_t;
 
+/*
+ * Routing policy modes (ablation ladder; see cost_model.h for the
+ * cost model behind modes >= QUEUE_AWARE).
+ */
+typedef enum {
+    ADAPT_POLICY_DEFAULT = 0,        /* == SIZE_HYSTERESIS (compat)      */
+    ADAPT_POLICY_SIZE_ONLY = 1,      /* raw EWMA threshold, no deadband  */
+    ADAPT_POLICY_SIZE_HYSTERESIS = 2,/* original validated policy        */
+    ADAPT_POLICY_QUEUE_AWARE = 3,    /* + queue-wait penalty on SHM      */
+    ADAPT_POLICY_COST_AWARE = 4,     /* + measured costs + switch margin */
+    ADAPT_POLICY_FULL_ADAPTIVE = 5   /* + health + learned crossover+QoS */
+} adapt_policy_mode_t;
+
+typedef enum {
+    ADAPT_QOS_BALANCED = 0,          /* combined cost (default)          */
+    ADAPT_QOS_LATENCY = 1,           /* double weight on latency terms   */
+    ADAPT_QOS_THROUGHPUT = 2         /* ignore latency budget            */
+} adapt_qos_t;
+
+typedef enum {
+    ADAPT_HEALTH_UNAVAILABLE = 0,    /* not mapped / not negotiated      */
+    ADAPT_HEALTH_HEALTHY = 1,
+    ADAPT_HEALTH_DEGRADED = 2,       /* high occupancy or slow drain     */
+    ADAPT_HEALTH_BLOCKED = 3,        /* ~full ring, producer parked      */
+    ADAPT_HEALTH_RECOVERING = 4      /* drained, probation before HEALTHY */
+} adapt_health_state_t;
+
+const char *adapt_policy_name(adapt_policy_mode_t p);
+const char *adapt_qos_name(adapt_qos_t q);
+const char *adapt_health_name(adapt_health_state_t h);
+
 typedef struct adapt_ctx adapt_ctx_t;
 
 typedef struct adapt_config {
@@ -86,6 +122,15 @@ typedef struct adapt_config {
      * (80% capacity, futex-parked) instead of returning -EAGAIN. Set to 1
      * for the legacy never-blocks behavior. */
     int         nonblocking_send;
+    /* Context-aware policy selection. ADAPT_POLICY_DEFAULT (=0) keeps
+     * the validated size+EWMA+hysteresis behavior; higher modes add
+     * queue-awareness, cost-awareness, health and QoS (see
+     * cost_model.h). Env override: ADAPTIPC_POLICY. */
+    adapt_policy_mode_t policy;
+    /* QoS posture and optional end-to-end latency budget in us
+     * (0 = unlimited). Env: ADAPTIPC_QOS, ADAPTIPC_LATENCY_BUDGET_US. */
+    adapt_qos_t qos;
+    double      latency_budget_us;
 } adapt_config_t;
 
 /*
@@ -113,6 +158,11 @@ int adapt_recv(adapt_ctx_t *ctx, void *buf, size_t max_size);
 /* Introspection for tests / instrumentation. */
 adapt_route_t  adapt_last_route(const adapt_ctx_t *ctx);
 double         adapt_ewma(const adapt_ctx_t *ctx);
+
+/* Context-aware policy introspection. */
+adapt_policy_mode_t adapt_policy(const adapt_ctx_t *ctx);
+double              adapt_crossover(const adapt_ctx_t *ctx); /* -1 unknown */
+adapt_health_state_t adapt_shm_health(const adapt_ctx_t *ctx);
 
 /* Bytes currently queued in the SHM ring (0 when no ring is mapped).
  * Approximate lock-free snapshot; used by tests to observe backpressure

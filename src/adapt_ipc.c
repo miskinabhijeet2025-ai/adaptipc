@@ -11,6 +11,7 @@
 #include "adapt_ipc.h"
 #include "shm_ringbuffer.h"
 #include "uds_fallback.h"
+#include "cost_model.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -72,20 +73,22 @@ struct adapt_ctx {
     char            neg_name[64];   /* shm object name being negotiated   */
     uint64_t        last_req_ns;    /* last SHM_SETUP_REQ send time       */
     int             eager_shm;      /* ADAPTIPC_EAGER_SHM=1 restores eager */
+
+    /* context-aware policy state (producer side, single-threaded) */
+    adapt_policy_mode_t policy;
+    adapt_cost_cfg_t    cmcfg;
+    adapt_rtctx_t       rt;
+    adapt_learn_t       learn;
+    adapt_health_t      health;
+    adapt_declog_t      declog;
+    const char         *declog_path;
+    unsigned long       decision_seq;
 };
 
 static inline double ewma_update(double ewma, double alpha, size_t current_size)
 {
     /* ewma_size = (alpha * current) + ((1 - alpha) * ewma) */
     return alpha * (double)current_size + (1.0 - alpha) * ewma;
-}
-
-static adapt_route_t classify(double ewma, adapt_route_t last)
-{
-    if (ewma >= ADAPT_TAU_HIGH) return ADAPT_ROUTE_SHM;
-    if (ewma <= ADAPT_TAU_LOW)  return ADAPT_ROUTE_UDS;
-    /* Hysteresis band: stay on the last route; default to UDS. */
-    return last == ADAPT_ROUTE_SHM ? ADAPT_ROUTE_SHM : ADAPT_ROUTE_UDS;
 }
 
 static int grow_rxbuf(adapt_ctx_t *ctx, size_t cap)
@@ -241,6 +244,42 @@ int adapt_init(adapt_role_t role, const adapt_config_t *cfg, adapt_ctx_t **out)
         ctx->alpha = (a > 0.0 && a <= 1.0) ? a : (double)0.2;
     }
 
+    /* Policy / QoS resolution: explicit config wins, then env, then the
+     * validated size+hysteresis default (backward compatible). */
+    ctx->policy = cfg->policy;
+    if (ctx->policy == ADAPT_POLICY_DEFAULT) {
+        const char *pv = getenv("ADAPTIPC_POLICY");
+        ctx->policy = ADAPT_POLICY_SIZE_HYSTERESIS;
+        if (pv) {
+            if (!strcmp(pv, "size_only"))
+                ctx->policy = ADAPT_POLICY_SIZE_ONLY;
+            else if (!strcmp(pv, "size_hysteresis"))
+                ctx->policy = ADAPT_POLICY_SIZE_HYSTERESIS;
+            else if (!strcmp(pv, "queue_aware"))
+                ctx->policy = ADAPT_POLICY_QUEUE_AWARE;
+            else if (!strcmp(pv, "cost_aware"))
+                ctx->policy = ADAPT_POLICY_COST_AWARE;
+            else if (!strcmp(pv, "full_adaptive"))
+                ctx->policy = ADAPT_POLICY_FULL_ADAPTIVE;
+        }
+    }
+    adapt_cost_cfg_defaults(&ctx->cmcfg);
+    ctx->cmcfg.qos = cfg->qos;
+    ctx->cmcfg.latency_budget_us = cfg->latency_budget_us;
+    adapt_cost_cfg_from_env(&ctx->cmcfg);
+    if (ctx->cmcfg.qos == ADAPT_QOS_LATENCY &&
+        !getenv("ADAPTIPC_LATENCY_WEIGHT"))
+        ctx->cmcfg.latency_weight = 2.0;
+    adapt_rtctx_init(&ctx->rt,
+                     ctx->cmcfg.learn_min_samples > 8
+                         ? 8 : ctx->cmcfg.learn_min_samples);
+    adapt_learn_init(&ctx->learn, &ctx->cmcfg);
+    adapt_health_init(&ctx->health, 8);
+    adapt_declog_init(&ctx->declog);
+    if (role == ADAPT_ROLE_PRODUCER)
+        ctx->declog_path = getenv("ADAPTIPC_DECISION_LOG");
+    if (ctx->declog_path) ctx->declog.enabled = 1;
+
     if (ctx->eager_shm) {
         shm_ring_role_t rrole = (role == ADAPT_ROLE_PRODUCER)
                                     ? SHM_RING_ROLE_PRODUCER
@@ -293,11 +332,42 @@ int adapt_send(adapt_ctx_t *ctx, const void *data, size_t size)
     } else {
         STATS_T0(ctx);
         ctx->ewma_size = ewma_update(ctx->ewma_size, ctx->alpha, size);
-        route = classify(ctx->ewma_size, ctx->last_route);
         STATS_ACC(router_ns);
 
-        /* Remember the CLASSIFIED route (not the per-message override). */
-        ctx->last_route = classify(ctx->ewma_size, ctx->last_route);
+        /* Context sampling + policy decision (producer-side, single
+         * thread: no synchronization needed on the estimator state). */
+        const uint64_t now = stats_now_ns();
+        const size_t occ = shm_ring_used_bytes(ctx->ring);
+        adapt_rtctx_sample(&ctx->rt, size, occ, now, ctx->alpha);
+        if (ctx->ring) {
+            const size_t cap = occ + shm_ring_free_bytes(ctx->ring);
+            adapt_health_update_shm(&ctx->health, occ, cap,
+                                    ctx->rt.drain_valid,
+                                    ctx->rt.ewma_arrival_bps,
+                                    ctx->rt.ewma_drain_bps);
+            if (ctx->stats_on)
+                ctx->st.health_transitions = ctx->health.transitions;
+        }
+
+        adapt_decision_t d;
+        route = adapt_policy_decide(
+            ctx->policy, &ctx->cmcfg, &ctx->rt,
+            ctx->policy >= ADAPT_POLICY_COST_AWARE ? &ctx->learn : NULL,
+            ctx->policy == ADAPT_POLICY_FULL_ADAPTIVE ? &ctx->health
+                                                      : NULL,
+            ctx->ring != NULL, ctx->ewma_size, ctx->last_route,
+            size, now, ctx->declog.enabled ? &d : NULL);
+        if (ctx->declog.enabled) {
+            d.seq = ++ctx->decision_seq;
+            adapt_declog_record(&ctx->declog, &d);
+        }
+        if (ctx->stats_on) ctx->st.decisions++;
+
+        if (ctx->last_route != ADAPT_ROUTE_NONE &&
+            route != ctx->last_route && ctx->stats_on)
+            ctx->st.route_switches++;
+        /* Remember the DECIDED route (not the per-message override). */
+        ctx->last_route = route;
         ctx->retry_pending = 0;
         ctx->pending_route = ADAPT_ROUTE_NONE;
     }
@@ -341,8 +411,13 @@ int adapt_send(adapt_ctx_t *ctx, const void *data, size_t size)
     if (route == ADAPT_ROUTE_SHM) {
         if (ctx->stats_on) ctx->st.sends_shm++;
         /* Zero-copy framing: assemble [tag][payload] directly in ring
-         * slots via scatter push -- no staging malloc, no concat copy. */
+         * slots via scatter push -- no staging malloc, no concat copy.
+         * For cost-aware policies the first (non-blocking) attempt is
+         * timed for calibration; parking time must not poison the
+         * transport-cost estimate, so the blocking retry is unmeasured. */
+        const int measure = ctx->policy >= ADAPT_POLICY_COST_AWARE;
         STATS_T0(ctx);
+        const uint64_t t_meas = measure ? stats_now_ns() : 0;
         const unsigned char tag = (unsigned char)ADAPT_ROUTE_SHM;
         shm_segment_t segs[2] = {
             { .base = &tag,  .len = 1 },
@@ -350,11 +425,24 @@ int adapt_send(adapt_ctx_t *ctx, const void *data, size_t size)
         };
         if (ctx->cfg.nonblocking_send)
             rc = shm_ring_push_scatter(ctx->ring, segs, 2);
-        else
+        else if (measure) {
+            rc = shm_ring_push_scatter(ctx->ring, segs, 2);
+            if (rc == -EAGAIN)
+                rc = shm_ring_push_scatter_blocking(ctx->ring, segs, 2);
+        } else
             rc = shm_ring_push_scatter_blocking(ctx->ring, segs, 2);
+        if (t_meas) {
+            const double us =
+                (double)(stats_now_ns() - t_meas) / 1000.0;
+            adapt_learn_observe(&ctx->learn, &ctx->cmcfg,
+                                ADAPT_ROUTE_SHM, size, us);
+            ctx->rt.ewma_latency_us = ctx->alpha * us +
+                (1.0 - ctx->alpha) * ctx->rt.ewma_latency_us;
+        }
         if (ctx->stats_on) {
             ctx->st.send_copy_ns += stats_now_ns() - t0_;
             ctx->st.send_copy_bytes += size + 1;
+            ctx->st.backpressure_parks = shm_ring_park_count(ctx->ring);
         }
         if (rc == -EAGAIN) {
             ctx->retry_pending = 1; /* resume with stored route on retry */
@@ -363,7 +451,9 @@ int adapt_send(adapt_ctx_t *ctx, const void *data, size_t size)
         ctx->retry_pending = 0;
     } else {
         if (ctx->stats_on) ctx->st.sends_uds++;
+        const int measure = ctx->policy >= ADAPT_POLICY_COST_AWARE;
         STATS_T0(ctx);
+        const uint64_t t_meas = measure ? stats_now_ns() : 0;
         frame[0] = (unsigned char)ADAPT_ROUTE_UDS;
         memcpy(frame + 1, data, size);
         if (ctx->stats_on) {
@@ -371,6 +461,17 @@ int adapt_send(adapt_ctx_t *ctx, const void *data, size_t size)
             ctx->st.send_copy_bytes += size + 1;
         }
         rc = uds_send(ctx->uds, ctx->cfg.peer_sock, frame, size + 1);
+        if (t_meas) {
+            /* measured only on success: failures are health, not cost */
+            if (rc == 0) {
+                const double us =
+                    (double)(stats_now_ns() - t_meas) / 1000.0;
+                adapt_learn_observe(&ctx->learn, &ctx->cmcfg,
+                                    ADAPT_ROUTE_UDS, size, us);
+                ctx->rt.ewma_latency_us = ctx->alpha * us +
+                    (1.0 - ctx->alpha) * ctx->rt.ewma_latency_us;
+            }
+        }
         if (rc == -ECONNREFUSED) return rc;
         ctx->retry_pending = 0;
     }
@@ -467,9 +568,26 @@ size_t adapt_shm_used_bytes(const adapt_ctx_t *ctx)
     return ctx ? shm_ring_used_bytes(ctx->ring) : 0;
 }
 
+adapt_policy_mode_t adapt_policy(const adapt_ctx_t *ctx)
+{
+    return ctx ? ctx->policy : ADAPT_POLICY_DEFAULT;
+}
+
+double adapt_crossover(const adapt_ctx_t *ctx)
+{
+    return ctx ? ctx->learn.crossover_b : -1.0;
+}
+
+adapt_health_state_t adapt_shm_health(const adapt_ctx_t *ctx)
+{
+    return ctx ? ctx->health.state : ADAPT_HEALTH_UNAVAILABLE;
+}
+
 void adapt_shutdown(adapt_ctx_t *ctx)
 {
     if (!ctx) return;
+    if (ctx->declog.enabled && ctx->declog_path)
+        adapt_declog_dump(&ctx->declog, ctx->declog_path);
     if (ctx->ring)
         shm_ring_close(ctx->ring, ctx->role == ADAPT_ROLE_PRODUCER);
     uds_close(ctx->uds);

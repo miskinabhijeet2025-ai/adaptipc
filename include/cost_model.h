@@ -27,42 +27,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "adapt_ipc.h"
+#include "adapt_ipc.h"   /* adapt_route_t, policy/QoS/health enums  */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* ------------------------------------------------------------------ */
-/* Policy / QoS / health enums                                          */
-/* ------------------------------------------------------------------ */
-
-typedef enum {
-    ADAPT_POLICY_DEFAULT = 0,        /* == SIZE_HYSTERESIS (compat)      */
-    ADAPT_POLICY_SIZE_ONLY = 1,      /* raw EWMA threshold, no deadband  */
-    ADAPT_POLICY_SIZE_HYSTERESIS = 2,/* original validated policy        */
-    ADAPT_POLICY_QUEUE_AWARE = 3,    /* + queue-wait penalty on SHM      */
-    ADAPT_POLICY_COST_AWARE = 4,     /* + measured costs + switch margin */
-    ADAPT_POLICY_FULL_ADAPTIVE = 5   /* + health + learned crossover+QoS */
-} adapt_policy_mode_t;
-
-typedef enum {
-    ADAPT_QOS_BALANCED = 0,          /* combined cost (default)          */
-    ADAPT_QOS_LATENCY = 1,           /* double weight on latency terms   */
-    ADAPT_QOS_THROUGHPUT = 2         /* ignore latency budget            */
-} adapt_qos_t;
-
-typedef enum {
-    ADAPT_HEALTH_UNAVAILABLE = 0,    /* not mapped / not negotiated      */
-    ADAPT_HEALTH_HEALTHY = 1,
-    ADAPT_HEALTH_DEGRADED = 2,       /* high occupancy or slow drain     */
-    ADAPT_HEALTH_BLOCKED = 3,        /* ~full ring, producer parked      */
-    ADAPT_HEALTH_RECOVERING = 4      /* drained, probation before HEA.   */
-} adapt_health_state_t;
-
-const char *adapt_policy_name(adapt_policy_mode_t p);
-const char *adapt_qos_name(adapt_qos_t q);
-const char *adapt_health_name(adapt_health_state_t h);
 
 /* ------------------------------------------------------------------ */
 /* Runtime context collector (Phase 1)                                  */
