@@ -29,3 +29,13 @@ add_test(NAME lazy_negotiation COMMAND test_lazy_negotiation)
 add_executable(test_backpressure_latency test_backpressure_latency.c)
 target_link_libraries(test_backpressure_latency PRIVATE adaptipc)
 add_test(NAME backpressure_latency COMMAND test_backpressure_latency)
+
+# Context-aware policy engine: estimator, margin, crossover, health, QoS
+add_executable(test_cost_model test_cost_model.c)
+target_link_libraries(test_cost_model PRIVATE adaptipc)
+add_test(NAME cost_model COMMAND test_cost_model)
+
+# Policy-mode integration: adversarial ladder, degradation, decision log
+add_executable(test_policy_modes test_policy_modes.c)
+target_link_libraries(test_policy_modes PRIVATE adaptipc)
+add_test(NAME policy_modes COMMAND test_policy_modes)
