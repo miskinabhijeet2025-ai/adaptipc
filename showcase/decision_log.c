@@ -7,7 +7,7 @@
  *
  * Build (matches the project flags):
  *   cc -std=c11 -O3 -Wall -Wextra -Wpedantic -pthread -Iinclude \
- *      showcase/decision_log.c src/*.c -o build-lab/decision_log
+ *      showcase/decision_log.c src/<sources> -o build-lab/decision_log
  *
  * Usage:
  *   decision_log --out FILE.jsonl [--msgs N] [--seed S]

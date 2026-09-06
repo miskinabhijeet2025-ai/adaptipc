@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+# Ensure core system utilities are resolvable even in restricted-PATH shells
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin${PATH:+:${PATH}}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
