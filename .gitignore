@@ -1,46 +1,14 @@
-# --- OS cruft ---
-.DS_Store
-Thumbs.db
-
-# --- C build artifacts ---
-*.o
-*.a
-*.so
+# build outputs
 build/
 build-bench/
-*.dSYM/
-
-# --- LaTeX build artifacts (main.pdf IS tracked intentionally) ---
-*.aux
-*.log
-*.out
-*.bbl
-*.blg
-*.toc
-*.fls
-*.fdb_latexmk
-*.synctex.gz
-*.xdv
-
-# --- Python ---
-__pycache__/
-*.pyc
-.venv/
-# --- archives / macOS compress artifacts ---
-*.zip
-__MACOSX/
-# one-off repair scripts
-merge_decision.py
-fix_regressions.py
-restore_authors.py
-rewire_decision.py
-rewire_esc.py
-replace_arch.py
-replace_mux2.py
-recover_figs.py
-disable_edge.py
-disable_figref.py
-check_page*.png
-experiments/runs/
 build-lab/
+build-v21/
+*.o
+# OS metadata
 .DS_Store
+# python
+__pycache__/
+# experiment runs (unique per machine; committed reference data lives in
+# experiments/raw, experiments/v2_1 and benchmarks/)
+experiments/runs/
+paper/main.log

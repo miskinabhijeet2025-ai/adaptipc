@@ -1,3 +1,105 @@
+# AdaptIPC
+
+<p align="center">
+  <img src="assets/before_vs_adaptive.png" alt="Static IPC vs AdaptIPC" width="720">
+</p>
+
+**Adaptive Inter-Process Communication Routing Middleware**
+
+AdaptIPC dynamically selects between POSIX shared memory and Unix domain
+sockets using workload context, measured transport cost, queue state,
+transport health, and hysteresis-aware decision logic — one API, the
+right transport for every message.
+
+![C11](https://img.shields.io/badge/C-11-blue)
+![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
+![tests](https://img.shields.io/badge/tests-10%2F10%20passing-2ea043)
+![sanitizers](https://img.shields.io/badge/ASan%20%7C%20LSan%20%7C%20TSan-clean-2ea043)
+
+<p align="center">
+  <img src="assets/architecture.png" alt="AdaptIPC architecture" width="560">
+</p>
+
+## 🚀 See It Work
+
+```sh
+./showcase/run_demo.sh          # real policy decisions + dashboard (~15 s)
+```
+
+This builds the real implementation, runs a demo workload through the
+actual adaptive policy, captures the library's decision log, and opens
+an interactive dashboard showing every routing decision — payload,
+estimated SHM/UDS costs, queue wait, switching margin, reason, and the
+routing timeline.
+
+<p align="center">
+  <img src="assets/screenshots/dashboard_uds_phase.png" alt="Dashboard — UDS phase" width="720">
+</p>
+<p align="center"><i>The dashboard stepping through 512 real policy
+decisions (cost bars, reasons, routing timeline).</i></p>
+
+> *Interactive demonstration workload — not the paper's authoritative
+> benchmark (that is `./demo/adaptipc_lab.sh -runall`).*
+
+## 📊 Key Results (measured on the reference platform)
+
+| | |
+|---|---|
+| **Throughput** | 12,350 MB/s (SHM ring), 9,400–9,700 MB/s (adaptive policies) |
+| **Route stability** | 8 switches / 200k adversarial messages, false-switch rate **0.00** |
+| **Backlog bound** | 14 frames (57 KB) under saturation vs unbounded ring |
+| **Queue prediction** | linear in occupancy; honest failure mode documented |
+| **Lazy setup** | endpoint init 0.40 ms vs 1.82 ms eager when SHM unused |
+| **Correctness** | 10/10 tests, ASan/LSan/TSan clean, 1M-msg zero-loss stress |
+
+Every number is traceable to `experiments/raw/`, `experiments/v2_1/raw/`
+or `tests/` output — see [Reproduce This Result](#reproduce-this-result).
+
+## How AdaptIPC Makes a Decision
+
+<p align="center">
+  <img src="assets/decision_pipeline.png" alt="Decision pipeline" width="520">
+</p>
+
+## Experimental Results
+
+| Figure | Source data | Generator |
+|---|---|---|
+| ![Throughput](assets/figures/throughput.png) | `experiments/raw/payload_sweep.csv` | `scripts/generate_showcase_figures.py` |
+| ![Latency](assets/figures/latency.png) | `experiments/raw/payload_sweep.csv` | same |
+| ![Routing decisions](assets/figures/routing_decisions.png) | fresh run `raw/routing_trace.csv` | same |
+| ![Policy comparison](assets/figures/policy_comparison.png) | `experiments/v2_1/raw/adversarial_delta.csv` | same |
+| ![Stability](assets/figures/stability.png) | `experiments/v2_1/raw/adversarial_delta.csv` | same |
+| ![Queue-aware](assets/figures/queue_aware.png) | `experiments/v2_1/raw/queue_prediction_accuracy.csv` | same |
+| ![Transport health](assets/figures/transport_health.png) | `experiments/v2_1/raw/stall_timeline.csv` | same |
+| ![Cost breakdown](assets/figures/cost_breakdown.png) | `showcase/outputs/decisions.csv` | same |
+
+## Reproduce This Result
+
+```sh
+# all figures + diagrams + dashboard data (from committed raw CSVs)
+./scripts/generate_showcase.sh
+# full experiment campaigns (fresh measurements)
+./demo/adaptipc_lab.sh -runall                 # ~10 min
+python3 scripts/summarize_results.py           # summary tables
+# correctness
+./demo/adaptipc_lab.sh -experiment correctness # 10/10 tests
+```
+
+## Repository Navigation
+
+| Section | Description |
+|---|---|
+| `src/`, `include/` | AdaptIPC implementation and public API |
+| `tests/` | correctness tests (unit + integration, sanitizers clean) |
+| `benchmarks/` | benchmark and demo tool sources + reference outputs |
+| `experiments/` | adaptive-policy experiment campaigns (raw CSVs, summaries) |
+| `scripts/` | reproduction and visualization scripts |
+| `showcase/` | interactive demo + dashboard (this page's demo) |
+| `paper/` | research paper and experimental documentation |
+| `demo/` | professor experiment lab CLI |
+
+
 # AdaptIPC — Adaptive IPC Routing Middleware
 
 AdaptIPC is an adaptive inter-process communication (IPC) routing middleware

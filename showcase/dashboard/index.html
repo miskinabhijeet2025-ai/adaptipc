@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>AdaptIPC — Live Routing Decisions</title>
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<h1>AdaptIPC — Adaptive IPC Routing</h1>
+<div class="sub">Interactive demonstration. Every decision below was
+produced by the real C implementation (full_adaptive policy) and logged
+by the library — nothing here is simulated.</div>
+
+<div class="controls">
+  <button id="play">▶ Play</button>
+  <button id="step">Step</button>
+  <button id="reset">⟲ Reset</button>
+  <span id="phase"></span>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h3>Selected transport</h3>
+    <div class="big" id="route">—</div>
+    <div class="decision-reason" id="reason"></div>
+  </div>
+  <div class="card">
+    <h3>Workload context</h3>
+    <div class="kv"><span>Payload</span><span id="payload">—</span></div>
+    <div class="kv"><span>Ring occupancy</span><span id="ewma">—</span></div>
+    <div class="kv"><span>Decision #</span><span id="seq">—</span></div>
+  </div>
+  <div class="card">
+    <h3>Estimated cost (μs)</h3>
+    <div class="kv"><span>SHM</span><span id="shm_cost">—</span></div>
+    <div class="bar"><i id="shm_bar" style="background:var(--shm)"></i></div>
+    <div class="kv" style="margin-top:8px"><span>UDS</span><span id="uds_cost">—</span></div>
+    <div class="bar"><i id="uds_bar" style="background:var(--uds)"></i></div>
+  </div>
+  <div class="card">
+    <h3>Queue / penalties (μs)</h3>
+    <div class="kv"><span>Queue wait (SHM)</span><span id="qwait">—</span></div>
+    <div class="kv"><span>Switch cost</span><span id="swcost">—</span></div>
+    <div class="kv"><span>Setup cost</span><span id="setup">—</span></div>
+    <div class="kv"><span>Health penalty</span><span id="health">—</span></div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px; max-width:1200px">
+  <h3>Routing timeline (green SHM · blue UDS)</h3>
+  <div class="timeline" id="timeline"></div>
+</div>
+
+<div class="card" style="margin-top:16px; max-width:1200px">
+  <h3>Decision history (most recent first)</h3>
+  <table><thead><tr>
+    <th>#</th><th>Payload</th><th>Occupancy</th><th>Queue wait</th>
+    <th>SHM cost</th><th>UDS cost</th><th>Route</th><th>Reason</th>
+  </tr></thead><tbody id="history"></tbody></table>
+</div>
+
+<script src="app.js"></script>
+</body></html>
