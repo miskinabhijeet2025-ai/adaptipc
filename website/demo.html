@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AdaptIPC — Interactive Demonstration</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<nav id="nav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html">Adapt<span>IPC</span></a>
+    <a href="index.html#top">Overview</a>
+    <a href="index.html#architecture">Architecture</a>
+    <a href="index.html#results">Results</a>
+    <a href="index.html#experiments">Experiments</a>
+    <a href="demo.html">Demo</a>
+    <a href="https://github.com/miskinabhijeet2025-ai/adaptipc">GitHub ↗</a>
+    <button id="theme" title="Toggle dark/light">☾</button>
+  </div>
+</nav>
+
+<header class="hero">
+  <h1>AdaptIPC Interactive Demonstration</h1>
+  <p class="tagline">512 real routing decisions, animated.</p>
+  <p class="section-note note-warn">REAL MEASUREMENTS — every decision
+  was produced by the C implementation (<code>benchmarks/decision_demo.c</code>,
+  full_adaptive policy) and logged by the library. This page replays the
+  log; it does not simulate routing.</p>
+  <button class="btn primary" id="start">▶ Start Demo</button>
+</header>
+
+<main>
+<section>
+  <div class="demo-grid">
+    <div class="card">
+      <h3>Current decision</h3>
+      <div class="kv"><span>Decision #</span><b id="d-seq">—</b></div>
+      <div class="kv"><span>Payload</span><b id="d-payload">—</b></div>
+      <div class="kv"><span>Ring occupancy</span><b id="d-occ">—</b></div>
+      <div class="kv"><span>Selected</span><b id="d-route">—</b></div>
+      <div class="kv"><span>Reason</span><b id="d-reason">—</b></div>
+    </div>
+    <div class="card">
+      <h3>Cost comparison (μs)</h3>
+      <div class="kv"><span>SHM</span><b id="d-shm">—</b></div>
+      <div class="bar"><i id="d-shmbar" style="background:var(--shm)"></i></div>
+      <div class="kv" style="margin-top:8px"><span>UDS</span><b id="d-uds">—</b></div>
+      <div class="bar"><i id="d-udsbar" style="background:var(--uds)"></i></div>
+      <div class="kv" style="margin-top:8px"><span>Queue wait</span><b id="d-q">—</b></div>
+      <div class="kv"><span>Switch cost</span><b id="d-sw">—</b></div>
+    </div>
+    <div class="card">
+      <h3>Progress</h3>
+      <div class="big" id="d-prog">0 / 0</div>
+      <div class="kv"><span>SHM decisions</span><b id="d-shmn">0</b></div>
+      <div class="kv"><span>UDS decisions</span><b id="d-udsn">0</b></div>
+    </div>
+  </div>
+  <h3 style="margin-top:20px">Routing timeline</h3>
+  <div class="timeline" id="d-timeline"></div>
+  <p class="section-note">The workload runs small control → bulk →
+  mixed → small. Watch the policy follow: UDS while payloads are small,
+  SHM when the EWMA crosses τ_high, UDS again as bulk traffic subsides.
+  Cost spikes on SHM (queue wait) are exactly what the queue-aware
+  escape reacts to.</p>
+</section>
+</main>
+
+<footer>
+  <b>AdaptIPC</b> — Adaptive IPC Routing Middleware<br>
+  <a href="index.html">Website</a> ·
+  <a href="https://github.com/miskinabhijeet2025-ai/adaptipc">GitHub</a>
+</footer>
+<script src="js/demo.js"></script>
+</body>
+</html>

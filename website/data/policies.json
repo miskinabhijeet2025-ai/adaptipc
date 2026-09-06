@@ -1,0 +1,36 @@
+{
+ "source": "experiments/v2_1/raw/adversarial_delta.csv",
+ "total_messages": 200000,
+ "policies": {
+  "size_only": {
+   "switches": 39796,
+   "genuine": 0,
+   "flaps": 0,
+   "mean_tp_mbps": 1692.7
+  },
+  "size_hysteresis": {
+   "switches": 8,
+   "genuine": 8,
+   "flaps": 0,
+   "mean_tp_mbps": 6697.5
+  },
+  "queue_aware": {
+   "switches": 8,
+   "genuine": 8,
+   "flaps": 0,
+   "mean_tp_mbps": 6574.4
+  },
+  "cost_aware": {
+   "switches": 0,
+   "genuine": 0,
+   "flaps": 0,
+   "mean_tp_mbps": 6526.7
+  },
+  "full_adaptive": {
+   "switches": 8,
+   "genuine": 8,
+   "flaps": 0,
+   "mean_tp_mbps": 6238.0
+  }
+ }
+}

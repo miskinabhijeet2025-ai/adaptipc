@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AdaptIPC — Adaptive IPC Routing Middleware</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<nav id="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top">Adapt<span>IPC</span></a>
+    <a href="#architecture">Architecture</a>
+    <a href="#routing">Adaptive Routing</a>
+    <a href="#results">Results</a>
+    <a href="#experiments">Experiments</a>
+    <a href="demo.html">Demo</a>
+    <a href="#repro">Reproducibility</a>
+    <a href="#paper">Paper</a>
+    <a href="https://github.com/miskinabhijeet2025-ai/adaptipc">GitHub ↗</a>
+    <button id="theme" title="Toggle dark/light">☾</button>
+  </div>
+</nav>
+
+<header id="top" class="hero">
+  <div class="hero-bg" aria-hidden="true">
+    <div class="flow-line shm" id="flow-shm"></div>
+    <div class="flow-line uds" id="flow-uds"></div>
+  </div>
+  <h1>ADAPT<span>IPC</span></h1>
+  <p class="tagline">Adaptive IPC Routing Middleware</p>
+  <p class="desc">Context-aware transport selection between POSIX Shared
+  Memory and Unix Domain Sockets — one API, measured costs, hysteresis
+  stability, per-message decisions.</p>
+  <div class="cta">
+    <a class="btn primary" href="#architecture">Explore Architecture</a>
+    <a class="btn" href="demo.html">Launch Interactive Demo</a>
+    <a class="btn" href="#results">View Experiments</a>
+    <a class="btn" href="#paper">Read Paper</a>
+    <a class="btn ghost" href="https://github.com/miskinabhijeet2025-ai/adaptipc">GitHub ↗</a>
+  </div>
+  <div class="routing-hero">
+    <div class="node app">Application</div>
+    <div class="arrow">▼</div>
+    <div class="node adaptipc">AdaptIPC <small>EWMA · cost model · hysteresis</small></div>
+    <div class="split">
+      <div class="branch" id="bh-shm"><div class="arrow">↙</div>
+        <div class="node shm">POSIX Shared Memory<small>lock-free SPSC ring</small></div></div>
+      <div class="branch" id="bh-uds"><div class="arrow">↘</div>
+        <div class="node uds">AF_UNIX Datagram<small>control / small messages</small></div></div>
+    </div>
+    <p class="vis-label">Interactive visualization — see it live with
+    <code>./showcase/run_demo.sh</code></p>
+  </div>
+  <div class="stats" id="stats"></div>
+</header>
+
+<main>
+<section id="insight" class="insight">
+  <h2 class="big-statement">One transport is not optimal<br>for every workload.</h2>
+  <div class="insight-flow">
+    <div>Small control message <span class="arr">↓</span> <b class="uds-c">UDS</b></div>
+    <div>Bulk message <span class="arr">↓</span> <b class="shm-c">SHM</b></div>
+    <div>Mixed workload <span class="arr">↓</span> <b class="adapt-c">AdaptIPC: dynamic selection</b></div>
+  </div>
+</section>
+
+<section id="architecture">
+  <h2>Architecture</h2>
+  <p class="section-note">Hover a component for what it does. This is the
+  implemented pipeline (<code>src/adapt_ipc.c</code>, <code>src/cost_model.c</code>,
+  <code>src/runtime_context.c</code>, <code>src/transport_health.c</code>).</p>
+  <div class="arch" id="arch">
+    <div class="anode" data-tip="The application calls one API: adapt_send() / adapt_recv().">APPLICATION</div>
+    <div class="aarr">▼</div>
+    <div class="anode accent" data-tip="Single entry point; every message is classified and routed individually.">adapt_send()</div>
+    <div class="aarr">▼</div>
+    <div class="anode" data-tip="Collects payload size, EWMA arrival rate, ring occupancy, consumer drain rate and activity — all producer-side, sampled per send.">Context Collector</div>
+    <div class="aarr">▼</div>
+    <div class="anode" data-tip="cost_T(S) = fixed + slope·S (online-calibrated), plus queue wait, setup, switching, health and latency penalties — all in microseconds.">Cost Estimator</div>
+    <div class="aarr">▼</div>
+    <div class="anode" data-tip="Score(T) compared with a stability margin: switch only if Score(new) + H < Score(current). Health state and QoS modulate the score.">Adaptive Policy</div>
+    <div class="split">
+      <div class="branch"><div class="aarr">↙</div>
+        <div class="anode shm" data-tip="Lock-free SPSC ring buffer over POSIX shm. HW 80% / LW 20% watermark flow control, futex park/wake.">Shared Memory (SHM)</div></div>
+      <div class="branch"><div class="aarr">↘</div>
+        <div class="anode uds" data-tip="AF_UNIX SOCK_DGRAM fallback for small/control messages; also carries lazy SHM setup handshakes.">AF_UNIX (UDS)</div></div>
+    </div>
+  </div>
+  <div class="tipbar" id="tipbar">Hover a component…</div>
+</section>
+
+<section id="routing">
+  <h2>Adaptive Routing — Interactive Simulator</h2>
+  <p class="section-note note-warn">Interactive policy visualization — a
+  simplified browser model of the C decision function. For real native
+  measurements run <code>./showcase/run_demo.sh</code> or
+  <code>./demo/adaptipc_lab.sh -experiment adaptive</code>.</p>
+  <div class="sim">
+    <div class="sim-controls">
+      <label>Payload <input type="range" id="s-payload" min="64" max="65536" step="64" value="8192"><output id="o-payload">8192 B</output></label>
+      <label>Queue occupancy <input type="range" id="s-queue" min="0" max="100" value="10"><output id="o-queue">10%</output></label>
+      <label>Consumer drain <input type="range" id="s-drain" min="0" max="100" value="80"><output id="o-drain">80%</output></label>
+      <label>Transport health
+        <select id="s-health">
+          <option value="HEALTHY">HEALTHY</option>
+          <option value="DEGRADED">DEGRADED</option>
+          <option value="BLOCKED">BLOCKED</option>
+        </select></label>
+      <label>QoS
+        <select id="s-qos">
+          <option value="BALANCED">balanced</option>
+          <option value="LATENCY">latency</option>
+          <option value="THROUGHPUT">throughput</option>
+        </select></label>
+    </div>
+    <div class="sim-out">
+      <div class="kv"><span>SHM score</span><b id="sim-shm">—</b></div>
+      <div class="kv"><span>UDS score</span><b id="sim-uds">—</b></div>
+      <div class="kv"><span>Queue wait (SHM)</span><b id="sim-q">—</b></div>
+      <div class="kv"><span>Decision</span><b id="sim-route">—</b></div>
+      <div class="kv"><span>Reason</span><b id="sim-reason">—</b></div>
+    </div>
+    <p class="note">Model mirrors the implemented decision rule:
+    <em>switch only if Score(new) + H &lt; Score(current)</em>, with a
+    notification floor for an idle consumer and a conservative 50 MB/s
+    drain floor.</p>
+  </div>
+</section>
+
+<section id="results">
+  <h2>Results — Real Measurements</h2>
+  <p class="section-note">Every chart below is generated from committed
+  experiment CSVs (<code>website/data/*.json</code>, exported by
+  <code>scripts/export_web_data.py</code>). REAL MEASUREMENTS — not
+  simulations.</p>
+  <div class="charts">
+    <div class="chart-card"><h3>Throughput by policy</h3><canvas id="c-tp"></canvas></div>
+    <div class="chart-card"><h3>Latency p50 / p99</h3><canvas id="c-lat"></canvas></div>
+    <div class="chart-card"><h3>Route stability (200k adversarial msgs)</h3><canvas id="c-stab"></canvas></div>
+    <div class="chart-card"><h3>Queue prediction vs actual</h3><canvas id="c-queue"></canvas></div>
+  </div>
+</section>
+
+<section id="timeline">
+  <h2>Routing Timeline</h2>
+  <p class="section-note">512 real decisions from
+  <code>benchmarks/decision_demo.c</code> (full_adaptive policy).
+  Hover a segment.</p>
+  <div class="timeline" id="rt-timeline"></div>
+  <div class="rt-detail" id="rt-detail">Hover or tap a segment.</div>
+</section>
+
+<section id="health">
+  <h2>Transport Health</h2>
+  <div class="health-machine">
+    <div class="hstate" data-s="HEALTHY">HEALTHY</div><div class="harr">→</div>
+    <div class="hstate" data-s="DEGRADED">DEGRADED</div><div class="harr">→</div>
+    <div class="hstate" data-s="BLOCKED">BLOCKED</div><div class="harr">→</div>
+    <div class="hstate" data-s="RECOVERING">RECOVERING</div><div class="harr">→</div>
+    <div class="hstate" data-s="HEALTHY2">HEALTHY</div>
+  </div>
+  <p class="section-note" id="health-tip">Debounced transitions (8
+  consecutive samples): occupancy ≥ 95% → BLOCKED; ≥ 80% or drain
+  deficit → DEGRADED; ≤ 20% streak → RECOVERING → HEALTHY. Escape
+  measured at &lt;1 ms, recovery at 2.7 ms in the stall experiment.</p>
+  <button class="btn" id="health-run">▶ Animate state machine</button>
+</section>
+
+<section id="costmodel">
+  <h2>Cost Model Breakdown</h2>
+  <p class="section-note note-warn">Conceptual visualization of the
+  implemented score terms (values from a representative real decision in
+  <code>data/routing.json</code>).</p>
+  <div class="costbars" id="costbars"></div>
+</section>
+
+<section id="experiments">
+  <h2>Experiment Explorer</h2>
+  <div class="cards" id="exp-cards"></div>
+</section>
+
+<section id="demo">
+  <h2>Interactive Demonstration</h2>
+  <p>The <a href="demo.html">demo page</a> replays the real decision log
+  with animated cost bars, routing timeline and history. For the native
+  terminal experience: <code>./demo/adaptipc_lab.sh -live</code>.</p>
+  <a class="btn primary" href="demo.html">Open Demo Page</a>
+</section>
+
+<section id="repro">
+  <h2>Reproducibility</h2>
+  <pre class="code">
+# build + tests (10 test binaries)
+cmake -B build && cmake --build build && ctest --test-dir build
+# full experiment campaign (raw CSVs -> summaries -> figures)
+./demo/adaptipc_lab.sh -runall
+# showcase figures + dashboard data (from committed raw CSVs)
+./scripts/generate_showcase.sh
+# interactive dashboard
+./scripts/start_website.sh   # http://localhost:8123/index.html
+  </pre>
+</section>
+
+<section id="paper">
+  <h2>Research Paper</h2>
+  <div class="paper-card">
+    <h3>Dynamic IPC Routing: Context-Aware Inter-Process Communication
+    Selection in Modern OS</h3>
+    <p>Covers the EWMA/hysteresis size policy, context-aware and
+    cost-aware extensions, watermark flow control, lazy negotiation,
+    and the full measurement campaign. The paper's historical data
+    lives under <code>benchmarks/</code> and <code>experiments/</code>;
+    newer campaigns under <code>experiments/v2_1/</code>.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/miskinabhijeet2025-ai/adaptipc/blob/main/paper/Dynamic_IPC_Routing.pdf">Read PDF</a>
+      <a class="btn" href="https://github.com/miskinabhijeet2025-ai/adaptipc/tree/main/paper">View LaTeX</a>
+      <a class="btn" href="#experiments">View Experiments</a>
+      <a class="btn ghost" href="https://github.com/miskinabhijeet2025-ai/adaptipc">View Source</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <b>AdaptIPC</b> — Adaptive IPC Routing Middleware<br>
+  Research implementation and reproducible experiments.<br>
+  <a href="https://github.com/miskinabhijeet2025-ai/adaptipc">GitHub</a> ·
+  <a href="#paper">Paper</a> ·
+  <a href="#experiments">Experiments</a> ·
+  <a href="demo.html">Demo</a>
+</footer>
+<script src="js/routing.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

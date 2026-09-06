@@ -1,0 +1,40 @@
+{
+ "experiments": [
+  {
+   "name": "EWMA Sensitivity",
+   "blurb": "How the smoothing factor changes adaptation speed vs route stability.",
+   "cmd": "./demo/adaptipc_lab.sh -experiment ewma",
+   "source": "benchmarks/alpha_sweep.c"
+  },
+  {
+   "name": "Hysteresis Stability",
+   "blurb": "The deadband prevents route oscillation under adversarial payloads.",
+   "cmd": "./demo/adaptipc_lab.sh -experiment hysteresis",
+   "source": "tests/benchmark_suite.c (thrash)"
+  },
+  {
+   "name": "Queue Awareness",
+   "blurb": "Ring occupancy and drain rate drive escape decisions under pressure.",
+   "cmd": "benchmarks/hardening_suite prediction",
+   "source": "src/runtime_context.c"
+  },
+  {
+   "name": "Cost-Aware Routing",
+   "blurb": "Estimated transport + queue + switching costs compared per message.",
+   "cmd": "./demo/adaptipc_lab.sh -experiment adaptive",
+   "source": "src/cost_model.c"
+  },
+  {
+   "name": "Transport Health",
+   "blurb": "HEALTHY -> DEGRADED -> BLOCKED -> RECOVERING with escape and recovery.",
+   "cmd": "benchmarks/hardening_suite stall",
+   "source": "src/transport_health.c"
+  },
+  {
+   "name": "Self-Calibrating Crossover",
+   "blurb": "The learned transport crossover S* vs synthetic ground truth (exact for 6 values).",
+   "cmd": "benchmarks/hardening_suite crossover",
+   "source": "src/cost_model.c"
+  }
+ ]
+}

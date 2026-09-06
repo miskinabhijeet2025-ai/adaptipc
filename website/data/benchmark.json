@@ -1,0 +1,68 @@
+{
+ "source": "experiments/raw/payload_sweep.csv",
+ "rows": [
+  {
+   "policy": "uds",
+   "messages": 15000,
+   "throughput_mbps": 300.3,
+   "p50_us": 52.0,
+   "p95_us": 1000.0,
+   "p99_us": 6838.0,
+   "p99_9_us": 30953.0
+  },
+  {
+   "policy": "shm",
+   "messages": 19500,
+   "throughput_mbps": 12349.5,
+   "p50_us": 1201.0,
+   "p95_us": 4983.0,
+   "p99_us": 6453.0,
+   "p99_9_us": 7508.0
+  },
+  {
+   "policy": "size_only",
+   "messages": 19500,
+   "throughput_mbps": 9403.6,
+   "p50_us": 2157.5,
+   "p95_us": 6620.0,
+   "p99_us": 7679.0,
+   "p99_9_us": 8475.0
+  },
+  {
+   "policy": "size_hysteresis",
+   "messages": 19500,
+   "throughput_mbps": 9742.9,
+   "p50_us": 1955.0,
+   "p95_us": 5457.0,
+   "p99_us": 5744.0,
+   "p99_9_us": 5911.0
+  },
+  {
+   "policy": "queue_aware",
+   "messages": 19500,
+   "throughput_mbps": 9598.2,
+   "p50_us": 2069.5,
+   "p95_us": 4564.0,
+   "p99_us": 5330.0,
+   "p99_9_us": 5882.5
+  },
+  {
+   "policy": "cost_aware",
+   "messages": 19500,
+   "throughput_mbps": 9656.2,
+   "p50_us": 2227.0,
+   "p95_us": 4315.1,
+   "p99_us": 5925.0,
+   "p99_9_us": 7086.0
+  },
+  {
+   "policy": "full_adaptive",
+   "messages": 19500,
+   "throughput_mbps": 9444.3,
+   "p50_us": 2217.0,
+   "p95_us": 4842.0,
+   "p99_us": 6500.0,
+   "p99_9_us": 7959.6
+  }
+ ]
+}

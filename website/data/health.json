@@ -1,0 +1,77 @@
+{
+ "source": "experiments/v2_1/raw/stall_timeline.csv",
+ "timeline": [
+  {
+   "t_ms": 0.0,
+   "event": "normal",
+   "route": "UDS",
+   "ring_used_bytes": 8197.0
+  },
+  {
+   "t_ms": 0.1,
+   "event": "normal",
+   "route": "SHM",
+   "ring_used_bytes": 180334.0
+  },
+  {
+   "t_ms": 0.1,
+   "event": "normal",
+   "route": "SHM",
+   "ring_used_bytes": 65576.0
+  },
+  {
+   "t_ms": 0.1,
+   "event": "normal",
+   "route": "SHM",
+   "ring_used_bytes": 393456.0
+  },
+  {
+   "t_ms": 0.2,
+   "event": "normal",
+   "route": "SHM",
+   "ring_used_bytes": 728893.0
+  },
+  {
+   "t_ms": 0.2,
+   "event": "normal",
+   "route": "SHM",
+   "ring_used_bytes": 1048576.0
+  },
+  {
+   "t_ms": 0.2,
+   "event": "normal",
+   "route": "SHM",
+   "ring_used_bytes": 1048576.0
+  },
+  {
+   "t_ms": 0.2,
+   "event": "normal",
+   "route": "SHM",
+   "ring_used_bytes": 1048576.0
+  },
+  {
+   "t_ms": 0.2,
+   "event": "normal",
+   "route": "SHM",
+   "ring_used_bytes": 1048576.0
+  },
+  {
+   "t_ms": 0.2,
+   "event": "normal",
+   "route": "SHM",
+   "ring_used_bytes": 1048576.0
+  },
+  {
+   "t_ms": 0.2,
+   "event": "stall",
+   "route": "UDS",
+   "ring_used_bytes": 1048576.0
+  },
+  {
+   "t_ms": 1.7,
+   "event": "recovery",
+   "route": "SHM",
+   "ring_used_bytes": 1048576.0
+  }
+ ]
+}

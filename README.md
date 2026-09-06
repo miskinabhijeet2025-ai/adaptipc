@@ -6,6 +6,12 @@
 
 **Adaptive Inter-Process Communication Routing Middleware**
 
+[🌐 Interactive Website](https://miskinabhijeet2025-ai.github.io/adaptipc/) ·
+[🚀 Live Demo](https://miskinabhijeet2025-ai.github.io/adaptipc/demo.html) ·
+[📊 Experiments](experiments/README.md) ·
+[📄 Paper](paper/Dynamic_IPC_Routing.pdf) ·
+[💻 Source](https://github.com/miskinabhijeet2025-ai/adaptipc)
+
 AdaptIPC dynamically selects between POSIX shared memory and Unix domain
 sockets using workload context, measured transport cost, queue state,
 transport health, and hysteresis-aware decision logic — one API, the
@@ -98,6 +104,7 @@ python3 scripts/summarize_results.py           # summary tables
 | `showcase/` | interactive demo + dashboard (this page's demo) |
 | `paper/` | research paper and experimental documentation |
 | `demo/` | professor experiment lab CLI |
+| `website/` | interactive website (GitHub Pages: charts, routing simulator, experiment explorer) |
 
 
 # AdaptIPC — Adaptive IPC Routing Middleware

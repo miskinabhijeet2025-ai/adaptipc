@@ -1,0 +1,47 @@
+{
+ "source": "experiments/v2_1/raw/queue_prediction_accuracy.csv",
+ "rows": [
+  {
+   "occ_pct": 10,
+   "occupancy_bytes": 426244,
+   "predicted_wait_us": 149.1,
+   "actual_delay_us": 65000.0
+  },
+  {
+   "occ_pct": 25,
+   "occupancy_bytes": 1049216,
+   "predicted_wait_us": 301.3,
+   "actual_delay_us": 163000.0
+  },
+  {
+   "occ_pct": 50,
+   "occupancy_bytes": 2103564,
+   "predicted_wait_us": 518.8,
+   "actual_delay_us": 367000.0
+  },
+  {
+   "occ_pct": 75,
+   "occupancy_bytes": 3147648,
+   "predicted_wait_us": 720.2,
+   "actual_delay_us": 236000.0
+  },
+  {
+   "occ_pct": 80,
+   "occupancy_bytes": 3358205,
+   "predicted_wait_us": 547.5,
+   "actual_delay_us": 249000.0
+  },
+  {
+   "occ_pct": 90,
+   "occupancy_bytes": 3780353,
+   "predicted_wait_us": 501.1,
+   "actual_delay_us": 287000.0
+  },
+  {
+   "occ_pct": 95,
+   "occupancy_bytes": 3985278,
+   "predicted_wait_us": 461.9,
+   "actual_delay_us": 536000.0
+  }
+ ]
+}
