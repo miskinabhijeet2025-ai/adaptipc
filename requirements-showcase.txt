@@ -1,0 +1,5 @@
+# AdaptIPC Showcase & Visualization Dependencies
+# Core scientific stack for generating publication-quality figures
+matplotlib>=3.7.0
+numpy>=1.23.0
+pandas>=2.0.0

@@ -75,6 +75,8 @@ def load_jsonl(path: Path):
             if not line or line.startswith("#"): continue
             try: out.append(json.loads(line))
             except json.JSONDecodeError: continue
+    return out
+
 def fig_throughput_vs_size(rows):
     if not rows:
         warn("fig01_throughput_vs_size", "benchmarks/results_sweep.csv missing")

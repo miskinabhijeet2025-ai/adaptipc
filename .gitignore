@@ -12,3 +12,4 @@ __pycache__/
 # experiments/raw, experiments/v2_1 and benchmarks/)
 experiments/runs/
 paper/main.log
+__pycache__/
