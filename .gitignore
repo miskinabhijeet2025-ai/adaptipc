@@ -41,3 +41,6 @@ recover_figs.py
 disable_edge.py
 disable_figref.py
 check_page*.png
+experiments/runs/
+build-lab/
+.DS_Store

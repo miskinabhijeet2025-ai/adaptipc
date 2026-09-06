@@ -127,6 +127,38 @@ please open an issue or contact the authors. (The paper text in `paper/`
 may additionally be subject to copyright transfer to its publication
 venue.)
 
+
+---
+
+# One-command Experiment Lab
+
+Run a polished, reproducible experiment campaign from a single command:
+
+```sh
+./demo/adaptipc_lab.sh -presentation   # fast in-class demo (~1 min)
+./demo/adaptipc_lab.sh                 # interactive menu
+./demo/adaptipc_lab.sh -experiment all # full research campaign
+```
+
+* Every experiment (build & test, transport comparison, adaptive
+  routing trace, hysteresis stability, EWMA alpha sensitivity, latency
+  breakdown) writes raw CSVs into a unique timestamped directory
+  `experiments/runs/<date_time>_<label>/` -- historical runs are never
+  overwritten (`experiments/runs/LATEST` points at the newest).
+* `scripts/lab_analyze.py` derives processed CSVs, PNG figures, result
+  tables and a static `report/report.html` **from the raw data**;
+  provenance (run id + git commit) is embedded in `run_metadata.json`.
+* Live demo (real router, real EWMA, rendered dashboard):
+  `./demo/adaptipc_lab.sh -live`.
+* Guides: `docs/EXPERIMENT_GUIDE.md` (per-experiment
+  objective/hypothesis/data/interpretation) and
+  `docs/PROFESSOR_DEMO.md` (an exact 8-10 minute presentation script).
+
+The historical benchmark data under `benchmarks/` and
+`experiments/raw|summaries|figures|v2_1/` are preserved reference
+results from the measurement campaigns behind the paper; fresh laptop
+runs land in `experiments/runs/` and are never mixed with them.
+
 ---
 
 # Context-Aware Routing (v2 extension)
